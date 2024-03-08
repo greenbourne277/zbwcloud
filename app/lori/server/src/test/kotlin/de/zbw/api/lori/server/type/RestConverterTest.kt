@@ -1,5 +1,6 @@
 package de.zbw.api.lori.server.type
 
+import de.zbw.api.lori.server.connector.DAConnectorTest.Companion.TEST_SUBCOMMUNITY
 import de.zbw.api.lori.server.route.QueryParameterParser
 import de.zbw.business.lori.server.LoriServerBackend
 import de.zbw.business.lori.server.type.AccessState
@@ -12,9 +13,16 @@ import de.zbw.business.lori.server.type.Item
 import de.zbw.business.lori.server.type.ItemMetadata
 import de.zbw.business.lori.server.type.ItemRight
 import de.zbw.business.lori.server.type.PublicationType
+import de.zbw.business.lori.server.type.SearchQueryResult
+import de.zbw.lori.model.AccessStateWithCountRest
+import de.zbw.lori.model.ItemInformation
 import de.zbw.lori.model.ItemRest
 import de.zbw.lori.model.MetadataRest
+import de.zbw.lori.model.PaketSigelWithCountRest
+import de.zbw.lori.model.PublicationTypeWithCountRest
 import de.zbw.lori.model.RightRest
+import de.zbw.lori.model.TemplateIdWithCountRest
+import de.zbw.lori.model.ZdbIdWithCountRest
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.MatcherAssert.assertThat
 import org.testng.Assert
@@ -40,6 +48,8 @@ class RestConverterTest {
                 author = TEST_METADATA.author,
                 band = TEST_METADATA.band,
                 collectionName = TEST_METADATA.collectionName,
+                collectionHandle = TEST_METADATA.collectionHandle,
+                communityHandle = TEST_METADATA.communityHandle,
                 communityName = TEST_METADATA.communityName,
                 createdBy = TEST_METADATA.createdBy,
                 createdOn = TEST_METADATA.createdOn,
@@ -54,6 +64,7 @@ class RestConverterTest {
                 publicationType = TEST_METADATA.publicationType.toRest(),
                 publicationDate = TEST_METADATA.publicationDate,
                 rightsK10plus = TEST_METADATA.rightsK10plus,
+                subCommunitiesHandles = TEST_METADATA.subCommunitiesHandles,
                 storageDate = TEST_METADATA.storageDate,
                 title = TEST_METADATA.title,
                 titleJournal = TEST_METADATA.titleJournal,
@@ -70,6 +81,7 @@ class RestConverterTest {
                     createdBy = TEST_RIGHT.createdBy,
                     createdOn = TEST_RIGHT.createdOn,
                     endDate = TEST_RIGHT.endDate,
+                    lastAppliedOn = TEST_RIGHT.lastAppliedOn,
                     lastUpdatedBy = TEST_RIGHT.lastUpdatedBy,
                     lastUpdatedOn = TEST_RIGHT.lastUpdatedOn,
                     licenceContract = TEST_RIGHT.licenceContract,
@@ -82,6 +94,8 @@ class RestConverterTest {
                     openContentLicence = TEST_RIGHT.openContentLicence,
                     restrictedOpenContentLicence = TEST_RIGHT.restrictedOpenContentLicence,
                     startDate = TEST_RIGHT.startDate,
+                    templateDescription = TEST_RIGHT.templateDescription,
+                    templateName = TEST_RIGHT.templateName,
                     zbwUserAgreement = TEST_RIGHT.zbwUserAgreement,
                 )
             ),
@@ -99,8 +113,10 @@ class RestConverterTest {
             metadataId = "5",
             author = "Colbjørnsen, Terje",
             band = null,
+            collectionHandle = "colHandle",
             collectionName = "Collectionname",
             communityName = "Communityname",
+            communityHandle = "comHandle",
             createdBy = null,
             createdOn = null,
             doi = null,
@@ -124,6 +140,7 @@ class RestConverterTest {
                 0,
                 ZoneOffset.UTC,
             ),
+            subCommunitiesHandles = listOf("11159/1114"),
             title = "some_title",
             titleJournal = "some_journal",
             titleSeries = "some_series",
@@ -133,7 +150,7 @@ class RestConverterTest {
         // when
         val receivedItem = TEST_DA_ITEM.toBusiness()
         // then
-        assertThat(expected, `is`(receivedItem))
+        assertThat(receivedItem, `is`(expected))
 
         // when + then
         val receivedItem2 = TEST_DA_ITEM.copy(handle = null)
@@ -358,6 +375,76 @@ class RestConverterTest {
         )
     }
 
+    @Test
+    fun testSearchQuery2ItemInformation() {
+        val givenItem = Item(
+            metadata = TEST_METADATA,
+            rights = listOf(TEST_RIGHT)
+        )
+        val given = SearchQueryResult(
+            numberOfResults = 2,
+            results = listOf(
+                givenItem,
+            ),
+            accessState = mapOf(
+                AccessState.OPEN to 2,
+            ),
+            invalidSearchKey = listOf("foo"),
+            hasLicenceContract = false,
+            hasOpenContentLicence = true,
+            hasSearchTokenWithNoKey = false,
+            hasZbwUserAgreement = false,
+            paketSigels = mapOf("sigel1" to 1),
+            publicationType = mapOf(PublicationType.BOOK to 1, PublicationType.THESIS to 1),
+            templateIds = mapOf(1 to ("name" to 2)),
+            zdbIds = mapOf("zdb1" to 1),
+        )
+        val expected = ItemInformation(
+            itemArray = listOf(givenItem.toRest()),
+            totalPages = 2,
+            accessStateWithCount = listOf(
+                AccessStateWithCountRest(AccessState.OPEN.toRest(), 2)
+            ),
+            hasLicenceContract = given.hasLicenceContract,
+            hasOpenContentLicence = given.hasOpenContentLicence,
+            hasSearchTokenWithNoKey = given.hasSearchTokenWithNoKey,
+            hasZbwUserAgreement = given.hasZbwUserAgreement,
+            invalidSearchKey = given.invalidSearchKey,
+            numberOfResults = given.numberOfResults,
+            paketSigelWithCount = listOf(
+                PaketSigelWithCountRest(count = 1, paketSigel = "sigel1")
+            ),
+            publicationTypeWithCount = listOf(
+                PublicationTypeWithCountRest(
+                    count = 1,
+                    publicationType = PublicationType.BOOK.toRest(),
+                ),
+                PublicationTypeWithCountRest(
+                    count = 1,
+                    publicationType = PublicationType.THESIS.toRest(),
+                ),
+            ),
+            zdbIdWithCount = listOf(
+                ZdbIdWithCountRest(
+                    count = 1,
+                    zdbId = "zdb1",
+                )
+            ),
+            templateIdWithCount = listOf(
+                TemplateIdWithCountRest(
+                    count = 2,
+                    templateId = "1",
+                    templateName = "name",
+                )
+            )
+        )
+
+        assertThat(
+            given.toRest(1),
+            `is`(expected),
+        )
+    }
+
     companion object {
         const val DATA_FOR_PARSE_TO_GROUP = "DATA_FOR_PARSE_TO_GROUP"
         val TODAY: LocalDate = LocalDate.of(2022, 3, 1)
@@ -365,7 +452,9 @@ class RestConverterTest {
             metadataId = "that-test",
             author = "Colbjørnsen, Terje",
             band = "band",
+            collectionHandle = "handleCol",
             collectionName = "Collectioname",
+            communityHandle = "handleCom",
             communityName = "Communityname",
             createdBy = "user1",
             createdOn = OffsetDateTime.of(
@@ -399,6 +488,7 @@ class RestConverterTest {
             publicationDate = LocalDate.of(2022, 9, 1),
             rightsK10plus = "some rights",
             storageDate = OffsetDateTime.now(),
+            subCommunitiesHandles = listOf("handle1", "handle2"),
             title = "Important title",
             titleJournal = null,
             titleSeries = null,
@@ -424,6 +514,16 @@ class RestConverterTest {
             ),
             endDate = TODAY,
             groupIds = null,
+            lastAppliedOn = OffsetDateTime.of(
+                2022,
+                3,
+                4,
+                1,
+                1,
+                0,
+                0,
+                ZoneOffset.UTC,
+            ),
             lastUpdatedBy = "user2",
             lastUpdatedOn = OffsetDateTime.of(
                 2022,
@@ -445,6 +545,9 @@ class RestConverterTest {
             notesManagementRelated = "Some management related notes",
             openContentLicence = "some licence",
             restrictedOpenContentLicence = false,
+            templateDescription = "foo",
+            templateId = null,
+            templateName = "name",
             zbwUserAgreement = true,
         )
 
@@ -459,7 +562,7 @@ class RestConverterTest {
             parentCollection = DACollection(
                 id = 3,
                 name = "Collectionname",
-                handle = null,
+                handle = "colHandle",
                 type = null,
                 link = "link",
                 expand = emptyList(),
@@ -479,7 +582,7 @@ class RestConverterTest {
                 DACommunity(
                     id = 1,
                     name = "Communityname",
-                    handle = null,
+                    handle = "comHandle",
                     type = null,
                     countItems = null,
                     link = "link",
@@ -490,7 +593,7 @@ class RestConverterTest {
                     introductoryText = null,
                     shortDescription = null,
                     sidebarText = null,
-                    subcommunities = emptyList(),
+                    subcommunities = listOf(TEST_SUBCOMMUNITY),
                     collections = emptyList(),
                 )
             ),
@@ -545,7 +648,7 @@ class RestConverterTest {
             bookmarkId = 1,
             bookmarkName = "test",
             description = "some description",
-            searchKeys = LoriServerBackend.parseValidSearchKeys("tit:someTitle"),
+            searchPairs = LoriServerBackend.parseValidSearchPairs("tit:someTitle"),
             publicationDateFilter = QueryParameterParser.parsePublicationDateFilter("2020-2030"),
             publicationTypeFilter = QueryParameterParser.parsePublicationTypeFilter("BOOK,ARTICLE"),
             accessStateFilter = QueryParameterParser.parseAccessStateFilter("OPEN,RESTRICTED"),

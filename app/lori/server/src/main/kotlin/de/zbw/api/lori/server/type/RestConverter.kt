@@ -7,35 +7,51 @@ import de.zbw.business.lori.server.NoRightInformationFilter
 import de.zbw.business.lori.server.PublicationDateFilter
 import de.zbw.business.lori.server.RightValidOnFilter
 import de.zbw.business.lori.server.SearchKey
+import de.zbw.business.lori.server.SearchPair
 import de.zbw.business.lori.server.StartDateFilter
 import de.zbw.business.lori.server.type.AccessState
 import de.zbw.business.lori.server.type.BasisAccessState
 import de.zbw.business.lori.server.type.BasisStorage
 import de.zbw.business.lori.server.type.Bookmark
+import de.zbw.business.lori.server.type.BookmarkTemplate
+import de.zbw.business.lori.server.type.ConflictType
 import de.zbw.business.lori.server.type.Group
 import de.zbw.business.lori.server.type.GroupEntry
 import de.zbw.business.lori.server.type.Item
 import de.zbw.business.lori.server.type.ItemMetadata
 import de.zbw.business.lori.server.type.ItemRight
 import de.zbw.business.lori.server.type.PublicationType
-import de.zbw.business.lori.server.type.UserRole
+import de.zbw.business.lori.server.type.RightError
+import de.zbw.business.lori.server.type.SearchQueryResult
+import de.zbw.business.lori.server.type.UserPermission
 import de.zbw.lori.model.AccessStateRest
+import de.zbw.lori.model.AccessStateWithCountRest
 import de.zbw.lori.model.BookmarkRawRest
 import de.zbw.lori.model.BookmarkRest
+import de.zbw.lori.model.BookmarkTemplateRest
+import de.zbw.lori.model.ConflictTypeRest
 import de.zbw.lori.model.FilterPublicationDateRest
 import de.zbw.lori.model.GroupRest
+import de.zbw.lori.model.ItemInformation
 import de.zbw.lori.model.ItemRest
 import de.zbw.lori.model.MetadataRest
+import de.zbw.lori.model.PaketSigelWithCountRest
 import de.zbw.lori.model.PublicationTypeRest
+import de.zbw.lori.model.PublicationTypeWithCountRest
+import de.zbw.lori.model.RightErrorRest
 import de.zbw.lori.model.RightRest
-import de.zbw.lori.model.RoleRest
 import de.zbw.lori.model.SearchKeyRest
+import de.zbw.lori.model.TemplateIdWithCountRest
+import de.zbw.lori.model.UserPermissionRest
+import de.zbw.lori.model.UserSessionRest
+import de.zbw.lori.model.ZdbIdWithCountRest
 import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVParser
 import org.apache.logging.log4j.LogManager
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
+import kotlin.math.ceil
 
 /**
  * Conversion functions between rest interface and business logic.
@@ -46,7 +62,7 @@ import java.time.format.DateTimeFormatter
 fun ItemRest.toBusiness() =
     Item(
         metadata = metadata.toBusiness(),
-        rights = rights?.map { it.toBusiness() } ?: emptyList(),
+        rights = rights.map { it.toBusiness() },
     )
 
 fun Item.toRest() =
@@ -85,7 +101,9 @@ fun MetadataRest.toBusiness() =
         metadataId = metadataId,
         author = author,
         band = band,
+        collectionHandle = collectionHandle,
         collectionName = collectionName,
+        communityHandle = communityHandle,
         communityName = communityName,
         createdBy = createdBy,
         createdOn = createdOn,
@@ -100,6 +118,7 @@ fun MetadataRest.toBusiness() =
         publicationType = publicationType.toBusiness(),
         publicationDate = publicationDate,
         rightsK10plus = rightsK10plus,
+        subCommunitiesHandles = subCommunitiesHandles,
         storageDate = storageDate,
         title = title,
         titleJournal = titleJournal,
@@ -112,7 +131,9 @@ fun ItemMetadata.toRest(): MetadataRest =
         metadataId = metadataId,
         author = author,
         band = band,
+        collectionHandle = collectionHandle,
         collectionName = collectionName,
+        communityHandle = communityHandle,
         communityName = communityName,
         createdBy = createdBy,
         createdOn = createdOn,
@@ -128,6 +149,7 @@ fun ItemMetadata.toRest(): MetadataRest =
         publicationDate = publicationDate,
         rightsK10plus = rightsK10plus,
         storageDate = storageDate,
+        subCommunitiesHandles = subCommunitiesHandles,
         title = title,
         titleJournal = titleJournal,
         titleSeries = titleSeries,
@@ -145,6 +167,7 @@ fun RightRest.toBusiness(): ItemRight =
         createdOn = createdOn,
         endDate = endDate,
         groupIds = groupIds,
+        lastAppliedOn = lastAppliedOn,
         lastUpdatedBy = lastUpdatedBy,
         lastUpdatedOn = lastUpdatedOn,
         licenceContract = licenceContract,
@@ -157,6 +180,9 @@ fun RightRest.toBusiness(): ItemRight =
         openContentLicence = openContentLicence,
         restrictedOpenContentLicence = restrictedOpenContentLicence,
         startDate = startDate,
+        templateDescription = templateDescription,
+        templateId = templateId,
+        templateName = templateName,
         zbwUserAgreement = zbwUserAgreement,
     )
 
@@ -171,6 +197,7 @@ fun ItemRight.toRest(): RightRest =
         createdOn = createdOn,
         endDate = endDate,
         groupIds = groupIds,
+        lastAppliedOn = lastAppliedOn,
         lastUpdatedBy = lastUpdatedBy,
         lastUpdatedOn = lastUpdatedOn,
         licenceContract = licenceContract,
@@ -183,6 +210,9 @@ fun ItemRight.toRest(): RightRest =
         openContentLicence = openContentLicence,
         restrictedOpenContentLicence = restrictedOpenContentLicence,
         startDate = startDate,
+        templateId = templateId,
+        templateDescription = templateDescription,
+        templateName = templateName,
         zbwUserAgreement = zbwUserAgreement,
     )
 
@@ -287,7 +317,9 @@ fun DAItem.toBusiness(): ItemMetadata? {
             metadataId = this.id.toString(),
             author = RestConverter.extractMetadata("dc.contributor.author", metadata),
             band = null, // Not in DA yet
+            collectionHandle = this.parentCollection?.handle,
             collectionName = this.parentCollection?.name,
+            communityHandle = this.parentCommunityList.takeIf { it.isNotEmpty() }?.first()?.handle,
             communityName = this.parentCommunityList.takeIf { it.isNotEmpty() }?.first()?.name,
             createdBy = null,
             createdOn = null,
@@ -302,6 +334,10 @@ fun DAItem.toBusiness(): ItemMetadata? {
             publicationType = publicationType,
             publicationDate = RestConverter.parseToDate(publicationDate),
             rightsK10plus = RestConverter.extractMetadata("dc.rights", metadata),
+            subCommunitiesHandles = this
+                .parentCommunityList
+                .map { parent -> parent.subcommunities?.mapNotNull { it.handle } ?: emptyList() }
+                .flatten(),
             storageDate = RestConverter.extractMetadata("dc.date.accessioned", metadata)
                 ?.let { OffsetDateTime.parse(it) },
             title = title,
@@ -312,11 +348,32 @@ fun DAItem.toBusiness(): ItemMetadata? {
     }
 }
 
-fun RoleRest.Role.toBusiness(): UserRole =
+fun UserSession.toRest(): UserSessionRest =
+    UserSessionRest(
+        email = this.email,
+        permissions = this.permissions.map { it.toRest() },
+        sessionId = this.sessionId,
+    )
+
+fun UserSessionRest.toBusiness(): UserSession =
+    UserSession(
+        email = this.email,
+        permissions = this.permissions?.map { it.toBusiness() } ?: emptyList(),
+        sessionId = this.sessionId,
+    )
+
+fun UserPermissionRest.toBusiness(): UserPermission =
     when (this) {
-        RoleRest.Role.readOnly -> UserRole.READONLY
-        RoleRest.Role.readWrite -> UserRole.READWRITE
-        RoleRest.Role.admin -> UserRole.ADMIN
+        UserPermissionRest.read -> UserPermission.READ
+        UserPermissionRest.write -> UserPermission.WRITE
+        UserPermissionRest.admin -> UserPermission.ADMIN
+    }
+
+fun UserPermission.toRest(): UserPermissionRest =
+    when (this) {
+        UserPermission.READ -> UserPermissionRest.read
+        UserPermission.WRITE -> UserPermissionRest.write
+        UserPermission.ADMIN -> UserPermissionRest.admin
     }
 
 fun BookmarkRawRest.toBusiness(): Bookmark =
@@ -324,10 +381,10 @@ fun BookmarkRawRest.toBusiness(): Bookmark =
         bookmarkName = this.bookmarkName,
         bookmarkId = this.bookmarkId,
         description = this.description,
-        searchKeys = this.searchTerm?.let { LoriServerBackend.parseValidSearchKeys(it) },
+        searchPairs = this.searchTerm?.let { LoriServerBackend.parseValidSearchPairs(it) },
         publicationDateFilter = QueryParameterParser.parsePublicationDateFilter(this.filterPublicationDate),
         publicationTypeFilter = QueryParameterParser.parsePublicationTypeFilter(this.filterPublicationType),
-        paketSigelFilter = QueryParameterParser.parsePaketSigelFilter(this.filterPublicationType),
+        paketSigelFilter = QueryParameterParser.parsePaketSigelFilter(this.filterPaketSigel),
         zdbIdFilter = QueryParameterParser.parseZDBIdFilter(this.filterZDBId),
         accessStateFilter = QueryParameterParser.parseAccessStateFilter(this.filterAccessState),
         temporalValidityFilter = QueryParameterParser.parseTemporalValidity(this.filterTemporalValidity),
@@ -343,9 +400,15 @@ fun BookmarkRest.toBusiness(): Bookmark =
         bookmarkName = this.bookmarkName,
         bookmarkId = this.bookmarkId,
         description = this.description,
-        searchKeys = this.searchKeys?.map {
-            Pair(SearchKey.toEnum(it.key), it.propertyValues)
-        }?.filter { it.first != null && it.second != null }?.associate { Pair(it.first!!, it.second!!) },
+        searchPairs = this.searchKeys?.mapNotNull { pair ->
+            val key = SearchKey.toEnum(pair.key)
+            val values = pair.propertyValues
+            if (key == null || values == null) {
+                null
+            } else {
+                SearchPair(key, values.joinToString(separator = " & "))
+            }
+        },
         publicationDateFilter = PublicationDateFilter(
             fromYear = this.filterPublicationDate?.fromYear ?: PublicationDateFilter.MIN_YEAR,
             toYear = this.filterPublicationDate?.toYear ?: PublicationDateFilter.MAX_YEAR,
@@ -375,8 +438,8 @@ fun Bookmark.toRest(): BookmarkRest =
         bookmarkName = this.bookmarkName,
         bookmarkId = this.bookmarkId,
         description = this.description,
-        searchKeys = this.searchKeys?.entries?.map { entry ->
-            SearchKeyRest(entry.key.fromEnum(), entry.value)
+        searchKeys = this.searchPairs?.map { pair ->
+            SearchKeyRest(pair.key.fromEnum(), listOf(pair.values))
         },
         filterPublicationDate = FilterPublicationDateRest(
             fromYear = this.publicationDateFilter?.fromYear,
@@ -392,6 +455,77 @@ fun Bookmark.toRest(): BookmarkRest =
         filterPaketSigel = this.paketSigelFilter?.paketSigels,
         filterZDBId = this.zdbIdFilter?.zdbIds,
         filterNoRightInformation = this.noRightInformationFilter?.let { true } ?: false
+    )
+
+fun BookmarkTemplateRest.toBusiness(): BookmarkTemplate =
+    BookmarkTemplate(
+        bookmarkId = this.bookmarkId,
+        templateId = this.templateId,
+    )
+
+fun BookmarkTemplate.toRest(): BookmarkTemplateRest =
+    BookmarkTemplateRest(
+        bookmarkId = this.bookmarkId,
+        templateId = this.templateId,
+    )
+
+fun SearchQueryResult.toRest(
+    pageSize: Int,
+): ItemInformation {
+    val totalPages = ceil(this.numberOfResults.toDouble() / pageSize.toDouble()).toInt()
+    return ItemInformation(
+        itemArray = this.results.map { it.toRest() },
+        totalPages = totalPages,
+        accessStateWithCount = this.accessState.entries.map {
+            AccessStateWithCountRest(it.key.toRest(), it.value)
+        }.toList(),
+        hasLicenceContract = this.hasLicenceContract,
+        hasOpenContentLicence = this.hasOpenContentLicence,
+        hasSearchTokenWithNoKey = this.hasSearchTokenWithNoKey,
+        hasZbwUserAgreement = this.hasZbwUserAgreement,
+        invalidSearchKey = this.invalidSearchKey,
+        numberOfResults = this.numberOfResults,
+        paketSigelWithCount = this.paketSigels.entries
+            .map { PaketSigelWithCountRest(count = it.value, paketSigel = it.key) }.toList(),
+        publicationTypeWithCount = this.publicationType.entries.map {
+            PublicationTypeWithCountRest(
+                count = it.value,
+                publicationType = it.key.toRest(),
+            )
+        }.toList(),
+        zdbIdWithCount = this.zdbIds.entries.map {
+            ZdbIdWithCountRest(
+                count = it.value,
+                zdbId = it.key,
+            )
+        }.toList(),
+        templateIdWithCount = this.templateIds.entries.map {
+            TemplateIdWithCountRest(
+                templateId = it.key.toString(),
+                templateName = it.value.first,
+                count = it.value.second,
+            )
+        }
+    )
+}
+
+fun ConflictType.toRest(): ConflictTypeRest =
+    when (this) {
+        ConflictType.DATE_OVERLAP -> ConflictTypeRest.dateOverlap
+        ConflictType.UNSPECIFIED -> ConflictTypeRest.unspecified
+    }
+
+fun RightError.toRest(): RightErrorRest =
+    RightErrorRest(
+        errorId = errorId,
+        conflictingRightId = conflictingRightId,
+        createdOn = createdOn,
+        message = message,
+        handleId = handleId,
+        metadataId = metadataId,
+        rightIdSource = rightIdSource,
+        templateIdSource = templateIdSource,
+        conflictType = conflictType?.toRest(),
     )
 
 /**

@@ -1,6 +1,7 @@
 package de.zbw.api.lori.server
 
 import de.zbw.api.lori.server.config.LoriConfiguration
+import de.zbw.api.lori.server.route.moduleAuthForTests
 import de.zbw.business.lori.server.LoriServerBackend
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
@@ -53,8 +54,9 @@ class ServicePoolWithProbesTest {
 
         val servicePool = getServicePool(mockk(), ready, healthy)
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val readyResonse = client.get("/ready")
             if (ready) {
@@ -91,6 +93,7 @@ class ServicePoolWithProbesTest {
                 config = TEST_CONFIG,
                 backend = mockk(),
                 tracer = mockk(),
+                samlUtils = mockk(),
             )
         ) {
             every { getHttpServer() } returns serverMock
@@ -119,7 +122,6 @@ class ServicePoolWithProbesTest {
             sqlUser = "postgres",
             sqlPassword = "postgres",
             digitalArchiveAddress = "https://archiveaddress",
-            digitalArchiveCommunity = listOf("5678"),
             digitalArchiveUsername = "testuser",
             digitalArchivePassword = "password",
             digitalArchiveBasicAuth = "basicauth",
@@ -127,6 +129,9 @@ class ServicePoolWithProbesTest {
             jwtIssuer = "0.0.0.0:8080",
             jwtRealm = "Lori ui",
             jwtSecret = "foobar",
+            duoSenderEntityId = "someId",
+            sessionSignKey = "8BADF00DDEADBEAFDEADBAADDEADBAAD",
+            sessionEncryptKey = "CAFEBABEDEADBEAFDEADBAADDEFEC8ED",
         )
 
         private val tracer: Tracer = OpenTelemetry.noop().getTracer("de.zbw.api.lori.server.ServiceWithProbesTest")
@@ -140,6 +145,7 @@ class ServicePoolWithProbesTest {
             config = TEST_CONFIG,
             backend = backend,
             tracer = tracer,
+            samlUtils = mockk(),
         )
     }
 }

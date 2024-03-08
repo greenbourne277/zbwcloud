@@ -10,9 +10,11 @@ import de.zbw.persistence.lori.server.ItemDBTest.Companion.TEST_Metadata
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
+import io.mockk.unmockkAll
 import io.opentelemetry.api.OpenTelemetry
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.core.Is.`is`
+import org.testng.annotations.AfterClass
 import org.testng.annotations.BeforeClass
 import org.testng.annotations.DataProvider
 import org.testng.annotations.Test
@@ -72,17 +74,22 @@ class FilterSearchTest : DatabaseTest() {
         }
     }
 
+    @AfterClass
+    fun afterTests() {
+        unmockkAll()
+    }
+
     @DataProvider(name = DATA_FOR_PUBLICATION_DATE)
     fun createDataForPublicationDate() = arrayOf(
         arrayOf(
-            "col:'subject1 subject2'",
+            "col:'subject1 | subject4'",
             listOf(PublicationDateFilter(2021, 2023)),
             listOf(publicationDateFilter[0], publicationTypeFilter[0]).toSet(),
             2,
             "search with filter in range",
         ),
         arrayOf(
-            "col:'subject1 subject2'",
+            "col:'subject4'",
             listOf(PublicationDateFilter(2020, 2021)),
             setOf(publicationTypeFilter[1]),
             1,
@@ -208,7 +215,7 @@ class FilterSearchTest : DatabaseTest() {
     }
 
     companion object {
-        const val DATA_FOR_PUBLICATION_DATE = "DATA_FOR_MULTIPLE_WORDS"
+        const val DATA_FOR_PUBLICATION_DATE = "DATA_FOR_PUBLICATION_DATE"
         const val DATA_FOR_NO_SEARCHTERM = "DATA_FOR_NO_SEARCHTERM"
     }
 }

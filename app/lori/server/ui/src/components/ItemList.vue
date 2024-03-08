@@ -1,16 +1,17 @@
 <script lang="ts">
 import {
-  AccessStateRest,
   AccessStateWithCountRest,
+  BookmarkRest,
   ItemInformation,
   ItemRest,
   MetadataRest,
   PaketSigelWithCountRest,
   PublicationTypeWithCountRest,
+  RightRest,
   ZdbIdWithCountRest,
 } from "@/generated-sources/openapi";
 import api from "@/api/api";
-import { DataTableHeader } from "vuetify";
+import rightApi from "@/api/rightApi";
 import GroupOverview from "@/components/GroupOverview.vue";
 import MetadataView from "@/components/MetadataView.vue";
 import RightsView from "@/components/RightsView.vue";
@@ -21,9 +22,16 @@ import { useDialogsStore } from "@/stores/dialogs";
 import searchquerybuilder from "@/utils/searchquerybuilder";
 import error from "@/utils/error";
 import BookmarkSave from "@/components/BookmarkSave.vue";
+import TemplateOverview from "@/components/TemplateOverview.vue";
+import BookmarkOverview from "@/components/BookmarkOverview.vue";
+import templateApi from "@/api/templateApi";
+import RightsEditDialog from "@/components/RightsEditDialog.vue";
 
 export default defineComponent({
   components: {
+    RightsEditDialog,
+    BookmarkOverview,
+    TemplateOverview,
     BookmarkSave,
     GroupOverview,
     RightsView,
@@ -38,6 +46,14 @@ export default defineComponent({
     const selectedItems = ref([]);
     const searchTerm = ref("");
     const tableContentLoading = ref(true);
+    const hintSearchField = ref(
+      "Syntax der Sucheingabe: keyword:'suchtext'; Erlaubte Keywords:" +
+        "com(Community), col(Collection), hdl (Handle Metadata), hdlcol (Handle Collection), hdlcom(Handle Community)," +
+        " hdlsubcom (Handle Subcommunity), metadataid(Metadata Id), sig(Paket-Sigel), tit(Titel), zdb(ZDB-Id)." +
+        " Negationen(!), Verundungen(&), Veroderungen(|) sowie Klammersetzungen sind zulässig, z.B.: col:'(subject1 | subject2) & !subject3'." +
+        "Wichtig: Zeichen die als logische Operatoren dienen, aber teil der Suche sein sollen, müssen escaped werden mit \\ " +
+        " (z.B. col:'EU & \\(European\\)')",
+    );
 
     /**
      * Error handling>
@@ -51,83 +67,83 @@ export default defineComponent({
 
     const headers = [
       {
-        text: "Item-Id",
+        title: "Metadata-Id",
         align: "start",
         sortable: false,
         value: "metadataId",
       },
       {
-        text: "Titel",
+        title: "Titel",
         sortable: true,
         value: "title",
         width: "300px",
       },
       {
-        text: "Handle",
+        title: "Handle",
         sortable: true,
         value: "handle",
       },
       {
-        text: "Community",
+        title: "Community",
         sortable: true,
         value: "communityName",
       },
       {
-        text: "Collection",
+        title: "Collection",
         sortable: true,
         value: "collectionName",
       },
       {
-        text: "Publikationstyp",
+        title: "Publikationstyp",
         sortable: true,
         value: "publicationType",
       },
       {
-        text: "Publikationsjahr",
+        title: "Publikationsjahr",
         sortable: true,
         value: "publicationDate",
       },
       {
-        text: "Band",
+        title: "Band",
         value: "band",
       },
       {
-        text: "DOI",
+        title: "DOI",
         value: "doi",
       },
       {
-        text: "ISBN",
+        title: "ISBN",
         value: "isbn",
       },
       {
-        text: "ISSN",
+        title: "ISSN",
         value: "issn",
       },
       {
-        text: "Paket-Sigel",
+        title: "Paket-Sigel",
         value: "paketSigel",
       },
       {
-        text: "PPN",
+        title: "PPN",
         value: "ppn",
       },
       {
-        text: "Rechte-K10Plus",
+        title: "Rechte-K10Plus",
         value: "rightsK10plus",
       },
       {
-        text: "Titel Journal",
+        title: "Titel Journal",
         value: "titleJournal",
       },
       {
-        text: "Titel Serie",
+        title: "Titel Serie",
         value: "titleSeries",
       },
       {
-        text: "ZDB-ID",
+        title: "ZDB-ID",
         value: "zdbId",
       },
-    ] as Array<DataTableHeader>;
+    ];
 
     const selectedHeaders = ref(headers.slice(0, 6));
 
@@ -140,13 +156,21 @@ export default defineComponent({
     // Page changes
     const handlePageChange = (nextPage: number) => {
       currentPage.value = nextPage;
-      searchQuery();
+      if (templateSearchIsActive.value) {
+        executeSearchByTemplateId();
+      } else {
+        searchQuery();
+      }
     };
 
     const handlePageSizeChange = (size: number) => {
       pageSize.value = size;
       currentPage.value = 1;
-      searchQuery();
+      if (templateSearchIsActive.value) {
+        executeSearchByTemplateId();
+      } else {
+        searchQuery();
+      }
     };
 
     /**
@@ -154,10 +178,10 @@ export default defineComponent({
      *
      * Single Click
      */
-    const addActiveItem = (metadata: MetadataRest, row: any) => {
-      row.select(true);
-      let item: ItemRest | undefined = items.value.find(
-        (e) => e.metadata.metadataId === metadata.metadataId
+    const addActiveItem = (mouseEvent: MouseEvent, row: any) => {
+      //row.select(true);
+      const item: ItemRest | undefined = items.value.find(
+        (e) => e.metadata.metadataId === row.item.metadataId,
       );
       if (item !== undefined) {
         currentItem.value = item;
@@ -165,16 +189,16 @@ export default defineComponent({
     };
 
     /** Double Click **/
-    const setActiveItem = (clickevent: any, row: any) => {
-      row.select(true);
-      let item: ItemRest | undefined = items.value.find(
-        (e) => e.metadata.metadataId === row.item.metadataId
+    const setActiveItem = (mouseEvent: MouseEvent, row: any) => {
+      //row.select(true);
+      const item: ItemRest | undefined = items.value.find(
+        (e) => e.metadata.metadataId === row.item.metadataId,
       );
       if (item !== undefined) {
         currentItem.value = item;
       }
       selectedItems.value = selectedItems.value.filter(
-        (e: MetadataRest) => e.metadataId == row.item.metadataId
+        (e: MetadataRest) => e.metadataId == row.item.metadataId,
       );
     };
 
@@ -182,21 +206,198 @@ export default defineComponent({
       return loadAlertError;
     };
 
-    onMounted(() => startSearch());
+    onMounted(() => {
+      const hasTemplateParameter = loadTemplateView();
+      if (!hasTemplateParameter) {
+        loadRightView();
+      }
+      const hasMetadataParameter = loadMetadataView();
+      if (!hasMetadataParameter) {
+        startSearch();
+      }
+    });
 
-    watch(headersValueVSelect, (currentValue, oldValue) => {
+    watch(headersValueVSelect, (currentValue) => {
       selectedHeaders.value = currentValue;
     });
+
+    // Initial Template View
+    const templateLoadError = ref(false);
+    const templateLoadErrorMsg = ref("");
+    const queryParameterRight = ref({} as RightRest);
+    const rightEditActivated = ref(false);
+    const loadTemplateView: () => boolean = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const templateId: string | null = urlParams.get("templateId");
+      if (templateId == null || templateId == "") {
+        return false;
+      }
+      templateApi
+        .getTemplateById(templateId)
+        .then((response: RightRest) => {
+          queryParameterRight.value = response;
+          rightEditActivated.value = true;
+        })
+        .catch((e) => {
+          error.errorHandling(e, (errMsg: string) => {
+            templateLoadErrorMsg.value = errMsg;
+            templateLoadError.value = true;
+          });
+        });
+      return true;
+    };
+
+    const loadRightView: () => boolean = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const rightId: string | null = urlParams.get("rightId");
+      if (rightId == null || rightId == "") {
+        return false;
+      }
+      rightApi
+        .getRightById(rightId)
+        .then((response: RightRest) => {
+          queryParameterRight.value = response;
+          rightEditActivated.value = true;
+        })
+        .catch((e) => {
+          error.errorHandling(e, (errMsg: string) => {
+            templateLoadErrorMsg.value = errMsg;
+            templateLoadError.value = true;
+          });
+        });
+      return true;
+    };
+
+    const loadMetadataView: () => boolean = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const metadataId: string | null = urlParams.get("metadataId");
+      if (metadataId == null || metadataId == "") {
+        return false;
+      }
+      executeSearchByMetadataId("metadataId:" + metadataId);
+      return true;
+    };
+
+    const closeTemplateEditDialog = () => {
+      rightEditActivated.value = false;
+    };
 
     // Search
     const searchStore = useSearchStore();
 
+    const alertIsActive = ref(false);
+    const alertMsg = ref("");
+
+    const templateSearchIsActive = ref(false);
+    const currentTemplateId = ref(0);
+    const initSearchByTemplateId = (templateId: number) => {
+      templateSearchIsActive.value = true;
+      currentPage.value = 1;
+      currentTemplateId.value = templateId;
+      closeTemplateOverview();
+      alertMsg.value =
+        "Alle gespeicherten Suchen für Template-ID " +
+        templateId +
+        " wurden ausgeführt.";
+      alertIsActive.value = true;
+      executeSearchByTemplateId();
+    };
+
+    const executeSearchByTemplateId = () => {
+      api
+        .searchQuery(
+          "",
+          (currentPage.value - 1) * pageSize.value, // offset
+          pageSize.value, // limit
+          currentPage.value,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          currentTemplateId.value.toString(), // templateId
+        )
+        .then((response: ItemInformation) => {
+          processSearchResult(response);
+        })
+        .catch((e) => {
+          error.errorHandling(e, (errMsg: string) => {
+            tableContentLoading.value = false;
+            loadAlertErrorMessage.value = errMsg;
+            loadAlertError.value = true;
+          });
+        });
+    };
+
+    const executeSearchByMetadataId = (searchTerm: string) => {
+      api
+        .searchQuery(
+          searchTerm,
+          (currentPage.value - 1) * pageSize.value, // offset
+          pageSize.value, // limit
+          currentPage.value,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+        )
+        .then((response: ItemInformation) => {
+          processSearchResult(response);
+        })
+        .catch((e) => {
+          error.errorHandling(e, (errMsg: string) => {
+            tableContentLoading.value = false;
+            loadAlertErrorMessage.value = errMsg;
+            loadAlertError.value = true;
+          });
+        });
+    };
+
+    const executeBookmarkSearch = (bookmark: BookmarkRest) => {
+      searchquerybuilder.setPublicationDateFilter(searchStore, bookmark);
+      searchquerybuilder.setPaketSigelFilter(searchStore, bookmark);
+      searchquerybuilder.setPublicationTypeFilter(searchStore, bookmark);
+      searchquerybuilder.setZDBFilter(searchStore, bookmark);
+      searchquerybuilder.setAccessStateFilter(searchStore, bookmark);
+      searchquerybuilder.setFormalRuleFilter(searchStore, bookmark);
+      searchquerybuilder.setTempValFilter(searchStore, bookmark);
+      searchquerybuilder.setStartDateAtFilter(searchStore, bookmark);
+      searchquerybuilder.setEndDateAtFilter(searchStore, bookmark);
+      searchquerybuilder.setValidOnFilter(searchStore, bookmark);
+      searchquerybuilder.setNoRightInformationFilter(searchStore, bookmark);
+      searchquerybuilder.setTemplateIdFilter(searchStore, bookmark);
+      closeBookmarkOverview();
+      alertMsg.value =
+        "Eine gespeicherte Suche '" +
+        bookmark.bookmarkName +
+        "' und wurde erfolgreich ausgeführt.";
+      alertIsActive.value = true;
+      startSearch();
+    };
+
     const startSearch = () => {
       currentPage.value = 1;
+      if (searchTerm.value == undefined) {
+        searchTerm.value = "";
+      }
       searchStore.lastSearchTerm = searchTerm.value;
       invalidSearchKeyError.value = false;
       hasSearchTokenWithNoKeyError.value = false;
-
+      templateSearchIsActive.value = false;
       searchQuery();
     };
 
@@ -217,43 +418,11 @@ export default defineComponent({
           searchquerybuilder.buildValidOnFilter(searchStore),
           searchquerybuilder.buildPaketSigelIdFilter(searchStore),
           searchquerybuilder.buildZDBIdFilter(searchStore),
-          searchquerybuilder.buildNoRightInformation(searchStore)
+          searchquerybuilder.buildNoRightInformation(searchStore),
+          searchquerybuilder.buildTemplateIdFilter(searchStore),
         )
         .then((response: ItemInformation) => {
-          items.value = response.itemArray;
-          tableContentLoading.value = false;
-          totalPages.value = response.totalPages;
-          numberOfResults.value = response.numberOfResults;
-          if (response.invalidSearchKey?.length || 0 > 0) {
-            invalidSearchKeyErrorMsg.value =
-              "Die folgenden Suchkeys sind ungültig: " +
-                response.invalidSearchKey?.join(", ") || "";
-            invalidSearchKeyError.value = true;
-          }
-
-          if (response.hasSearchTokenWithNoKey == true) {
-            hasSearchTokenWithNoKeyErrorMsg.value =
-              "Mindestens ein Wort enthält keinen Suchkey." +
-              " Dieser Teil wird bei der Suche ignoriert.";
-            hasSearchTokenWithNoKeyError.value = true;
-          }
-          if (response.paketSigelWithCount != undefined) {
-            searchStore.paketSigelIdReceived = response.paketSigelWithCount;
-          }
-          if (response.hasLicenceContract != undefined) {
-            searchStore.hasLicenceContract = response.hasLicenceContract;
-          }
-          if (response.hasOpenContentLicence != undefined) {
-            searchStore.hasOpenContentLicence = response.hasOpenContentLicence;
-          }
-          if (response.hasZbwUserAgreement != undefined) {
-            searchStore.hasZbwUserAgreement = response.hasZbwUserAgreement;
-          }
-          if (response.itemArray.length == 0) {
-            reduceToSelectedFilters();
-          } else {
-            resetAllDynamicFilter(response);
-          }
+          processSearchResult(response);
         })
         .catch((e) => {
           error.errorHandling(e, (errMsg: string) => {
@@ -264,47 +433,81 @@ export default defineComponent({
         });
     };
 
+    const processSearchResult = (response: ItemInformation) => {
+      items.value = response.itemArray;
+      tableContentLoading.value = false;
+      totalPages.value = response.totalPages;
+      numberOfResults.value = response.numberOfResults;
+      if (response.invalidSearchKey?.length || 0 > 0) {
+        invalidSearchKeyErrorMsg.value =
+          "Die folgenden Suchkeys sind ungültig: " +
+            response.invalidSearchKey?.join(", ") || "";
+        invalidSearchKeyError.value = true;
+      }
+
+      if (response.hasSearchTokenWithNoKey == true) {
+        hasSearchTokenWithNoKeyErrorMsg.value =
+          "Mindestens ein Wort enthält keinen Suchkey." +
+          " Dieser Teil wird bei der Suche ignoriert.";
+        hasSearchTokenWithNoKeyError.value = true;
+      }
+      // TODO: wird nur in abhängigkeit von ergebnis angezeigt
+      if (response.paketSigelWithCount != undefined) {
+        searchStore.paketSigelIdReceived = response.paketSigelWithCount;
+      }
+      if (response.hasLicenceContract != undefined) {
+        searchStore.hasLicenceContract = response.hasLicenceContract;
+      }
+      if (response.hasOpenContentLicence != undefined) {
+        searchStore.hasOpenContentLicence = response.hasOpenContentLicence;
+      }
+      if (response.hasZbwUserAgreement != undefined) {
+        searchStore.hasZbwUserAgreement = response.hasZbwUserAgreement;
+      }
+      if (response.itemArray.length == 0) {
+        reduceToSelectedFilters();
+      } else {
+        resetAllDynamicFilter(response);
+      }
+    };
+
     const reduceToSelectedFilters = () => {
       searchStore.accessStateReceived =
         searchStore.accessStateSelectedLastSearch.map((elem: string) => {
-          let foo: AccessStateWithCountRest = {
+          return {
             count: 0,
             accessState: searchquerybuilder.accessStateToType(elem),
-          };
-          return foo;
+          } as AccessStateWithCountRest;
         });
       searchStore.accessStateIdx = reduceIdx(searchStore.accessStateIdx);
 
       searchStore.paketSigelIdReceived =
         searchStore.paketSigelSelectedLastSearch.map((elem: string) => {
-          let foo: PaketSigelWithCountRest = {
+          return {
             count: 0,
             paketSigel: elem,
-          };
-          return foo;
+          } as PaketSigelWithCountRest;
         });
       searchStore.paketSigelIdIdx = reduceIdx(searchStore.paketSigelIdIdx);
 
       searchStore.publicationTypeReceived =
         searchStore.publicationTypeSelectedLastSearch.map((elem: string) => {
-          let foo: PublicationTypeWithCountRest = {
+          return {
             count: 0,
             publicationType: searchquerybuilder.publicationTypeToType(elem),
-          };
-          return foo;
+          } as PublicationTypeWithCountRest;
         });
       searchStore.publicationTypeIdx = reduceIdx(
-        searchStore.publicationTypeIdx
+        searchStore.publicationTypeIdx,
       );
 
       searchStore.zdbIdReceived = searchStore.zdbIdSelectedLastSearch.map(
         (elem: string) => {
-          let foo: ZdbIdWithCountRest = {
+          return {
             count: 0,
             zdbId: elem,
-          };
-          return foo;
-        }
+          } as ZdbIdWithCountRest;
+        },
       );
       searchStore.zdbIdIdx = reduceIdx(searchStore.zdbIdIdx);
     };
@@ -322,12 +525,12 @@ export default defineComponent({
           ? response.accessStateWithCount
           : Array(0);
       searchStore.accessStateIdx = Array(
-        searchStore.accessStateReceived.length
+        searchStore.accessStateReceived.length,
       ).fill(false);
       resetDynamicFilter(
         searchStore.accessStateReceived.map((e) => e.accessState),
         searchStore.accessStateSelectedLastSearch,
-        searchStore.accessStateIdx
+        searchStore.accessStateIdx,
       );
       // Reset Paket Sigel
       searchStore.paketSigelIdReceived =
@@ -335,27 +538,27 @@ export default defineComponent({
           ? response.paketSigelWithCount
           : Array(0);
       searchStore.paketSigelIdIdx = Array(
-        searchStore.paketSigelIdReceived.length
+        searchStore.paketSigelIdReceived.length,
       ).fill(false);
       resetDynamicFilter(
         searchStore.paketSigelIdReceived.map((e) => e.paketSigel),
         searchStore.paketSigelSelectedLastSearch,
-        searchStore.paketSigelIdIdx
+        searchStore.paketSigelIdIdx,
       );
       // Reset Publication Type
       searchStore.publicationTypeReceived =
         response.publicationTypeWithCount != undefined
           ? response.publicationTypeWithCount.sort((a, b) =>
-              b.publicationType.localeCompare(a.publicationType)
+              b.publicationType.localeCompare(a.publicationType),
             )
           : Array(0);
       searchStore.publicationTypeIdx = Array(
-        searchStore.publicationTypeReceived.length
+        searchStore.publicationTypeReceived.length,
       ).fill(false);
       resetDynamicFilter(
         searchStore.publicationTypeReceived.map((e) => e.publicationType),
         searchStore.publicationTypeSelectedLastSearch,
-        searchStore.publicationTypeIdx
+        searchStore.publicationTypeIdx,
       );
       // Reset ZDB Id
       searchStore.zdbIdReceived =
@@ -363,19 +566,32 @@ export default defineComponent({
           ? response.zdbIdWithCount
           : Array(0);
       searchStore.zdbIdIdx = Array(searchStore.zdbIdReceived.length).fill(
-        false
+        false,
       );
       resetDynamicFilter(
         searchStore.zdbIdReceived.map((e) => e.zdbId),
         searchStore.zdbIdSelectedLastSearch,
-        searchStore.zdbIdIdx
+        searchStore.zdbIdIdx,
+      );
+      // Reset Template Id
+      searchStore.templateIdReceived =
+          response.templateIdWithCount != undefined
+              ? response.templateIdWithCount
+              : Array(0);
+      searchStore.templateIdIdx = Array(searchStore.templateIdReceived.length).fill(
+          false,
+      );
+      resetDynamicFilter(
+          searchStore.templateIdReceived.map((e) => e.templateId),
+          searchStore.templateIdSelectedLastSearch,
+          searchStore.templateIdIdx,
       );
     };
 
     const resetDynamicFilter = (
       receivedFilters: Array<string>,
       savedFilters: Array<string>,
-      idxMap: Array<boolean>
+      idxMap: Array<boolean>,
     ) => {
       receivedFilters.forEach((elem: string, index: number): void => {
         if (savedFilters.includes(elem)) {
@@ -425,8 +641,15 @@ export default defineComponent({
      */
     const dialogStore = useDialogsStore();
 
+    const closeBookmarkOverview = () => {
+      dialogStore.bookmarkOverviewActivated = false;
+    };
     const closeGroupDialog = () => {
       dialogStore.groupOverviewActivated = false;
+    };
+
+    const closeTemplateOverview = () => {
+      dialogStore.templateOverviewActivated = false;
     };
 
     const closeBookmarkSaveDialog = () => {
@@ -441,14 +664,18 @@ export default defineComponent({
     };
 
     return {
+      alertIsActive,
+      alertMsg,
       bookmarkSuccessfulMsg,
       currentItem,
       currentPage,
+      queryParameterRight,
       dialogStore,
       hasSearchTokenWithNoKeyError,
       hasSearchTokenWithNoKeyErrorMsg,
       headers,
       headersValueVSelect,
+      hintSearchField,
       items,
       invalidSearchKeyError,
       invalidSearchKeyErrorMsg,
@@ -463,15 +690,24 @@ export default defineComponent({
       selectedHeaders,
       selectedItems,
       tableContentLoading,
+      rightEditActivated,
+      templateLoadError,
+      templateLoadErrorMsg,
       totalPages,
       // Methods
       addActiveItem,
       addBookmarkSuccessful,
+      closeBookmarkOverview,
       closeBookmarkSaveDialog,
+      closeTemplateEditDialog,
       closeGroupDialog,
+      closeTemplateOverview,
+      executeBookmarkSearch,
+      initSearchByTemplateId,
       getAlertLoad,
       handlePageChange,
       handlePageSizeChange,
+      loadTemplateView,
       parsePublicationType,
       searchQuery,
       setActiveItem,
@@ -482,29 +718,73 @@ export default defineComponent({
 </script>
 
 <style scoped>
-/deep/ tr.v-data-table__selected {
+:deep(tr.v-data-table__selected) {
   background: #7d92f5 !important;
 }
 </style>
 <template>
   <v-container>
     <v-dialog
-      max-width="1000px"
       v-model="dialogStore.groupOverviewActivated"
-      v-on:close="closeGroupDialog"
       :retain-focus="false"
+      max-width="1000px"
+      v-on:close="closeGroupDialog"
     >
       <GroupOverview></GroupOverview>
     </v-dialog>
     <v-dialog
-      max-width="1000px"
       v-model="dialogStore.bookmarkSaveActivated"
-      v-on:close="closeBookmarkSaveDialog"
       :retain-focus="false"
+      max-width="1000px"
+      v-on:close="closeBookmarkSaveDialog"
     >
       <BookmarkSave
         v-on:addBookmarkSuccessful="addBookmarkSuccessful"
       ></BookmarkSave>
+    </v-dialog>
+    <v-dialog
+      v-model="dialogStore.templateOverviewActivated"
+      :retain-focus="false"
+      max-width="1000px"
+      v-on:close="closeTemplateOverview"
+    >
+      <TemplateOverview
+        v-on:getItemsByTemplateId="initSearchByTemplateId"
+      ></TemplateOverview>
+    </v-dialog>
+    <v-dialog
+      v-model="dialogStore.bookmarkOverviewActivated"
+      :retain-focus="false"
+      max-width="1000px"
+      v-on:close="closeBookmarkOverview"
+    >
+      <BookmarkOverview
+        v-on:executeBookmarkSearch="executeBookmarkSearch"
+      ></BookmarkOverview>
+    </v-dialog>
+    <v-dialog v-model="templateLoadError" max-width="1000">
+      <v-card>
+        <v-card-title class="text-h5"
+          >Laden von Template fehlgeschlagen</v-card-title
+        >
+        <v-card-text>
+          Informationen zum Fehler: {{ templateLoadErrorMsg }}
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+    <v-dialog
+      v-model="rightEditActivated"
+      :retain-focus="false"
+      max-width="1000px"
+      v-on:close="closeTemplateEditDialog"
+    >
+      <RightsEditDialog
+        :index="-1"
+        :isNewRight="false"
+        :isNewTemplate="false"
+        :right="queryParameterRight"
+        v-on:editRightClosed="closeTemplateEditDialog"
+      ></RightsEditDialog>
     </v-dialog>
     <v-row>
       <v-col cols="2">
@@ -516,45 +796,41 @@ export default defineComponent({
             <v-text-field
               v-model="searchTerm"
               append-icon="mdi-magnify"
-              label="Suche"
               clearable
+              :hint="hintSearchField"
+              label="Suche"
+              variant="outlined"
+              persistent-hint
               single-line
               @click:append="startSearch"
               @keydown.enter.prevent="startSearch"
-              outlined
-              persistent-hint
-              hint="Sucheingabe: keyword:'suchtext'; Erlaubte Keywords:
-              com(Community),
-              col(Collection),
-              sig(Paket-Sigel),
-              tit(Titel),
-              zdb(ZDB-Id)"
             ></v-text-field>
           </v-card-title>
           <v-spacer></v-spacer>
-          <v-alert
-            v-model="invalidSearchKeyError"
-            dismissible
-            text
-            type="error"
-          >
+          <v-alert v-model="loadAlertError" closable type="error">
+            Laden der bibliographischen Daten war nicht erfolgreich:
+            {{ loadAlertErrorMessage }}
+          </v-alert>
+          <v-alert v-model="invalidSearchKeyError" closable type="error">
             {{ invalidSearchKeyErrorMsg }}
           </v-alert>
-          <v-alert
-            v-model="hasSearchTokenWithNoKeyError"
-            dismissible
-            text
-            type="error"
-          >
+          <v-alert v-model="hasSearchTokenWithNoKeyError" closable type="error">
             {{ hasSearchTokenWithNoKeyErrorMsg }}
           </v-alert>
           <v-alert
             v-model="bookmarkSuccessfulMsg"
-            dismissible
+            closable
+            text="Bookmark erfolgreich hinzugefügt mit Id {{ newBookmarkId.toString() }}."
+            type="success"
+          >
+          </v-alert>
+          <v-alert
+            v-model="alertIsActive"
+            closable
             text
             type="success"
           >
-            Bookmark erfolgreich hinzugefügt mit Id {{ newBookmarkId }}.
+            {{ alertMsg }}
           </v-alert>
           <v-select
             v-model="headersValueVSelect"
@@ -575,21 +851,21 @@ export default defineComponent({
 
           <v-col cols="5" sm="5"> Suchergebnisse: {{ numberOfResults }}</v-col>
           <v-data-table
-            disable-pagination
-            :hide-default-footer="true"
+            v-model="selectedItems"
             :headers="selectedHeaders"
+            :hide-default-footer="true"
             :items="items.map((value) => value.metadata)"
-            @click:row="addActiveItem"
-            @dblclick:row="setActiveItem"
-            loading="tableContentLoading"
+            disable-pagination
+            item-value="metadataId"
+            :loading="tableContentLoading"
             loading-text="Daten werden geladen... Bitte warten."
             show-select
-            item-key="metadataId"
-            v-model="selectedItems"
+            @click:row="addActiveItem"
+            @dblclick:row="setActiveItem"
           >
             <template v-slot:item.handle="{ item }">
               <td>
-                <a :href="item.handle">{{ item.handle.substring(22, 35) }}</a>
+                <a :href="item.handle">{{ item.handle }}</a>
               </td>
             </template>
             <template v-slot:item.publicationType="{ item }">
@@ -612,27 +888,23 @@ export default defineComponent({
               <v-col cols="10" sm="9">
                 <v-pagination
                   v-model="currentPage"
-                  total-visible="7"
                   :length="totalPages"
                   next-icon="mdi-menu-right"
                   prev-icon="mdi-menu-left"
+                  total-visible="7"
                   @input="handlePageChange"
                 ></v-pagination>
               </v-col>
             </v-row>
           </v-col>
-          <v-alert v-model="loadAlertError" dismissible text type="error">
-            Laden der bibliographischen Daten war nicht erfolgreich:
-            {{ loadAlertErrorMessage }}
-          </v-alert>
         </v-card>
       </v-col>
       <v-col cols="4">
         <v-card v-if="currentItem.metadata" class="mx-auto" tile>
           <RightsView
-            :rights="currentItem.rights"
-            :metadataId="currentItem.metadata.metadataId"
             :handle="currentItem.metadata.handle"
+            :metadataId="currentItem.metadata.metadataId"
+            :rights="currentItem.rights"
           ></RightsView>
           <MetadataView
             :metadata="Object.assign({}, currentItem.metadata)"

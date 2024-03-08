@@ -259,6 +259,26 @@ class EndDateFilter(
     }
 }
 
+class TemplateIdFilter(
+    val templateIds: List<Int>,
+) : RightSearchFilter(DatabaseConnector.COLUMN_RIGHT_TEMPLATE_ID) {
+    override fun toWhereClause(): String =
+        templateIds.joinToString(prefix = "(", postfix = ")", separator = " OR ") {
+            "$dbColumnName = ?"
+        }
+
+    override fun setSQLParameter(counter: Int, preparedStatement: PreparedStatement): Int {
+        var localCounter = counter
+        templateIds.forEach {
+            preparedStatement.setInt(localCounter++, it)
+        }
+        return localCounter
+    }
+
+    override fun toString(): String =
+        templateIds.joinToString(separator = ",")
+}
+
 class FormalRuleFilter(
     val formalRules: List<FormalRule>,
 ) : RightSearchFilter("") {

@@ -13,6 +13,7 @@ import de.zbw.business.lori.server.StartDateFilter
 import de.zbw.business.lori.server.TemporalValidityFilter
 import de.zbw.business.lori.server.ZDBIdFilter
 import de.zbw.business.lori.server.type.Bookmark
+import de.zbw.persistence.lori.server.DatabaseConnector.Companion.TABLE_NAME_BOOKMARK
 import de.zbw.persistence.lori.server.DatabaseConnector.Companion.runInTransaction
 import de.zbw.persistence.lori.server.DatabaseConnector.Companion.setIfNotNull
 import io.opentelemetry.api.trace.Tracer
@@ -78,28 +79,12 @@ class BookmarkDB(
 
         return generateSequence {
             if (rs.next()) {
-                Bookmark(
-                    bookmarkId = rs.getInt(1),
-                    bookmarkName = rs.getString(2),
-                    description = rs.getString(3),
-                    searchKeys = LoriServerBackend.parseValidSearchKeys(rs.getString(4)),
-                    publicationDateFilter = PublicationDateFilter.fromString(rs.getString(5)),
-                    accessStateFilter = AccessStateFilter.fromString(rs.getString(6)),
-                    temporalValidityFilter = TemporalValidityFilter.fromString(rs.getString(7)),
-                    startDateFilter = StartDateFilter.fromString(rs.getString(8)),
-                    endDateFilter = EndDateFilter.fromString(rs.getString(9)),
-                    formalRuleFilter = FormalRuleFilter.fromString(rs.getString(10)),
-                    validOnFilter = RightValidOnFilter.fromString(rs.getString(11)),
-                    paketSigelFilter = PaketSigelFilter.fromString(rs.getString(12)),
-                    zdbIdFilter = ZDBIdFilter.fromString(rs.getString(13)),
-                    noRightInformationFilter = NoRightInformationFilter.fromString(rs.getBoolean(14).toString()),
-                    publicationTypeFilter = PublicationTypeFilter.fromString(rs.getString(15))
-                )
+                extractBookmark(rs)
             } else null
         }.takeWhile { true }.toList()
     }
 
-    fun updateBookmarksById(bookmarkId: Int, bookmark: Bookmark): Int {
+    fun updateBookmarkById(bookmarkId: Int, bookmark: Bookmark): Int {
         val prepStmt = insertUpdateSetParameters(
             bookmark,
             connection.prepareStatement(STATEMENT_UPDATE_BOOKMARK)
@@ -115,8 +100,31 @@ class BookmarkDB(
         }
     }
 
+    fun getBookmarkList(
+        limit: Int,
+        offset: Int,
+    ): List<Bookmark> {
+        val prepStmt = connection.prepareStatement(STATEMENT_GET_BOOKMARK_LIST).apply {
+            this.setInt(1, limit)
+            this.setInt(2, offset)
+        }
+
+        val span = tracer.spanBuilder("getBookmarkList").startSpan()
+        val rs = try {
+            span.makeCurrent()
+            runInTransaction(connection) { prepStmt.executeQuery() }
+        } finally {
+            span.end()
+        }
+
+        return generateSequence {
+            if (rs.next()) {
+                extractBookmark(rs)
+            } else null
+        }.takeWhile { true }.toList()
+    }
+
     companion object {
-        private const val TABLE_NAME_BOOKMARK = "bookmark"
         private const val COLUMN_BOOKMARK_ID = "bookmark_id"
 
         const val STATEMENT_GET_BOOKMARKS = "SELECT " +
@@ -127,6 +135,7 @@ class BookmarkDB(
             "filter_no_right_information,filter_publication_type" +
             " FROM $TABLE_NAME_BOOKMARK" +
             " WHERE $COLUMN_BOOKMARK_ID = ANY(?)"
+
         const val STATEMENT_INSERT_BOOKMARK = "INSERT INTO $TABLE_NAME_BOOKMARK" +
             "(bookmark_name,search_term,description,filter_publication_date," +
             "filter_access_state,filter_temporal_validity,filter_start_date," +
@@ -138,9 +147,11 @@ class BookmarkDB(
             "?,?,?," +
             "?,?,?," +
             "?,?)"
+
         const val STATEMENT_DELETE_BOOKMARK_BY_ID = "DELETE " +
             "FROM $TABLE_NAME_BOOKMARK" +
             " WHERE $COLUMN_BOOKMARK_ID = ?"
+
         const val STATEMENT_UPDATE_BOOKMARK =
             "UPDATE $TABLE_NAME_BOOKMARK" +
                 " SET bookmark_name=?,search_term=?,description=?,filter_publication_date=?," +
@@ -150,17 +161,45 @@ class BookmarkDB(
                 "filter_publication_type=?" +
                 " WHERE $COLUMN_BOOKMARK_ID = ?"
 
+        const val STATEMENT_GET_BOOKMARK_LIST = "SELECT" +
+            " bookmark_id,bookmark_name,description,search_term," +
+            "filter_publication_date,filter_access_state,filter_temporal_validity," +
+            "filter_start_date,filter_end_date,filter_formal_rule," +
+            "filter_valid_on,filter_paket_sigel,filter_zdb_id," +
+            "filter_no_right_information,filter_publication_type" +
+            " FROM $TABLE_NAME_BOOKMARK" +
+            " ORDER BY $COLUMN_BOOKMARK_ID LIMIT ? OFFSET ?;"
+
+        private fun extractBookmark(rs: ResultSet): Bookmark =
+            Bookmark(
+                bookmarkId = rs.getInt(1),
+                bookmarkName = rs.getString(2),
+                description = rs.getString(3),
+                searchPairs = LoriServerBackend.parseValidSearchPairs(rs.getString(4)),
+                publicationDateFilter = PublicationDateFilter.fromString(rs.getString(5)),
+                accessStateFilter = AccessStateFilter.fromString(rs.getString(6)),
+                temporalValidityFilter = TemporalValidityFilter.fromString(rs.getString(7)),
+                startDateFilter = StartDateFilter.fromString(rs.getString(8)),
+                endDateFilter = EndDateFilter.fromString(rs.getString(9)),
+                formalRuleFilter = FormalRuleFilter.fromString(rs.getString(10)),
+                validOnFilter = RightValidOnFilter.fromString(rs.getString(11)),
+                paketSigelFilter = PaketSigelFilter.fromString(rs.getString(12)),
+                zdbIdFilter = ZDBIdFilter.fromString(rs.getString(13)),
+                noRightInformationFilter = NoRightInformationFilter.fromString(rs.getBoolean(14).toString()),
+                publicationTypeFilter = PublicationTypeFilter.fromString(rs.getString(15))
+            )
+
         private fun insertUpdateSetParameters(
             bookmark: Bookmark,
             prepStmt: PreparedStatement,
         ): PreparedStatement {
             return prepStmt.apply {
                 this.setString(1, bookmark.bookmarkName)
-                this.setIfNotNull(2, bookmark.searchKeys) { value, idx, prepStmt ->
-                    prepStmt.setString(idx, LoriServerBackend.searchKeysToString(value))
+                this.setIfNotNull(2, bookmark.searchPairs) { value, idx, prepStmt ->
+                    prepStmt.setString(idx, LoriServerBackend.searchPairsToString(value))
                 }
                 this.setIfNotNull(3, bookmark.description) { value, idx, prepStmt ->
-                    prepStmt.setString(idx, value.toString())
+                    prepStmt.setString(idx, value)
                 }
                 this.setIfNotNull(4, bookmark.publicationDateFilter) { value, idx, prepStmt ->
                     prepStmt.setString(idx, value.toString())

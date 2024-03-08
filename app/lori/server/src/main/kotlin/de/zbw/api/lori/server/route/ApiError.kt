@@ -33,6 +33,14 @@ object ApiError {
             status = "409",
         )
 
+    fun movedPermanently(detail: String? = "The target moved to another location."): ErrorRest =
+        ErrorRest(
+            type = "/redirection/301",
+            title = "Target moved permanently.",
+            detail = detail,
+            status = "301",
+        )
+
     fun internalServerError(detail: String? = "Bitte an Admin wenden."): ErrorRest =
         ErrorRest(
             type = "/errors/internal",
@@ -41,10 +49,10 @@ object ApiError {
             status = "500",
         )
 
-    fun unauthorizedError(detail: String? = "Benutzter ist nicht berechtigt."): ErrorRest =
+    fun unauthorizedError(detail: String? = "Benutzer ist nicht berechtigt."): ErrorRest =
         ErrorRest(
             type = "/errors/unauthorized",
-            title = "User und/oder Passwort ungültig.",
+            title = "Authentifizierung ist ungültig.",
             detail = detail,
             status = "401",
         )

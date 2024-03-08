@@ -1,19 +1,21 @@
-FROM openjdk:17.0.1-slim-bullseye AS tools
+FROM eclipse-temurin:17.0.10_7-jdk AS tools
 
-RUN apt update && \
-    apt install -y \
+LABEL IMAGE_VERSION_TAG=0.9.2
+LABEL IMAGE_NAME=vault-openjdk
+LABEL OTC_STAGE=zbw-tools-nl
+
+RUN apt-get update && apt-get install -y \
     curl \
     wget \
     git \
     bash \
     jq \
     grep \
-    unzip
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
 
 FROM tools as vault
-ARG VAULT_VERSION=1.12.2
-
-# install vault
+ARG VAULT_VERSION=1.15.4
 RUN curl -LO https://releases.hashicorp.com/vault/"$VAULT_VERSION"/vault_"$VAULT_VERSION"_linux_amd64.zip && \
     unzip vault* && \
     chmod +x ./vault && \

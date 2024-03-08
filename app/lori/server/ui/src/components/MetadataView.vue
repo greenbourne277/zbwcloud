@@ -5,7 +5,7 @@ import { computed, defineComponent, PropType } from "vue";
 export default defineComponent({
   props: {
     metadata: {
-      type: {} as PropType<MetadataRest>,
+      type: Object as PropType<MetadataRest>,
       required: true,
     },
   },
@@ -46,10 +46,10 @@ export default defineComponent({
     <v-divider></v-divider>
     <v-expansion-panels focusable multiple>
       <v-expansion-panel>
-        <v-expansion-panel-header>
+        <v-expansion-panel-title>
           DSpace-Item Metadaten
-        </v-expansion-panel-header>
-        <v-expansion-panel-content>
+        </v-expansion-panel-title>
+        <v-expansion-panel-text>
           <v-container>
             <v-row>
               <v-col>Id</v-col>
@@ -73,14 +73,21 @@ export default defineComponent({
               }}</v-col>
               <v-col></v-col>
             </v-row>
+            <v-row v-show="currentMetadata.subCommunitiesHandles">
+              <v-col>Subcommunity Handle-Ids</v-col>
+              <v-col>{{
+                prettyPrint(currentMetadata.subCommunitiesHandles)
+              }}</v-col>
+              <v-col></v-col>
+            </v-row>
           </v-container>
-        </v-expansion-panel-content>
+        </v-expansion-panel-text>
       </v-expansion-panel>
       <v-expansion-panel>
-        <v-expansion-panel-header>
+        <v-expansion-panel-title>
           Bibliographische Metadaten
-        </v-expansion-panel-header>
-        <v-expansion-panel-content>
+        </v-expansion-panel-title>
+        <v-expansion-panel-text>
           <v-container>
             <v-row v-show="currentMetadata.title">
               <v-col>Titel</v-col>
@@ -116,7 +123,42 @@ export default defineComponent({
             </v-row>
             <v-row v-show="currentMetadata.handle">
               <v-col>Handle</v-col>
-              <v-col>{{ prettyPrint(currentMetadata.handle) }}</v-col>
+              <v-col>
+                <td>
+                  <a :href="currentMetadata.handle">{{
+                    currentMetadata.handle
+                  }}</a>
+                </td>
+              </v-col>
+              <v-col></v-col>
+            </v-row>
+            <v-row v-show="currentMetadata.collectionHandle">
+              <v-col>Collection Handle</v-col>
+              <v-col>
+                <td>
+                  <a
+                    :href="
+                      'http://hdl.handle.net/' +
+                      currentMetadata.collectionHandle
+                    "
+                    >{{ currentMetadata.collectionHandle }}</a
+                  >
+                </td>
+              </v-col>
+              <v-col></v-col>
+            </v-row>
+            <v-row v-show="currentMetadata.communityHandle">
+              <v-col>Community Handle</v-col>
+              <v-col>
+                <td>
+                  <a
+                    :href="
+                      'http://hdl.handle.net/' + currentMetadata.communityHandle
+                    "
+                    >{{ currentMetadata.communityHandle }}</a
+                  >
+                </td>
+              </v-col>
               <v-col></v-col>
             </v-row>
             <v-row v-show="currentMetadata.isbn">
@@ -165,7 +207,7 @@ export default defineComponent({
               <v-col></v-col>
             </v-row>
           </v-container>
-        </v-expansion-panel-content>
+        </v-expansion-panel-text>
       </v-expansion-panel>
     </v-expansion-panels>
   </v-card>

@@ -93,8 +93,16 @@ class RightFilterTest : DatabaseTest() {
     private fun getInitialMetadata(): Map<ItemMetadata, List<ItemRight>> = mapOf(
         itemRightRestricted to listOf(TEST_RIGHT.copy(accessState = AccessState.RESTRICTED)),
         itemRightRestrictedOpen to listOf(
-            TEST_RIGHT.copy(accessState = AccessState.RESTRICTED),
-            TEST_RIGHT.copy(accessState = AccessState.OPEN),
+            TEST_RIGHT.copy(
+                accessState = AccessState.RESTRICTED,
+                startDate = LocalDate.of(2025, 6, 1),
+                endDate = LocalDate.of(2025, 9, 1),
+            ),
+            TEST_RIGHT.copy(
+                accessState = AccessState.OPEN,
+                startDate = LocalDate.of(2024, 6, 1),
+                endDate = LocalDate.of(2024, 9, 1),
+            ),
         ),
         tempValFilterPresent to listOf(
             TEST_RIGHT.copy(
@@ -164,7 +172,7 @@ class RightFilterTest : DatabaseTest() {
     @DataProvider(name = DATA_FOR_SEARCH_WITH_RIGHT_FILTER)
     fun createDataForSearchWithRightFilter() = arrayOf(
         arrayOf(
-            "col:subject1",
+            "col:'subject1 | subject3'",
             listOf(
                 PublicationTypeFilter(
                     listOf(
@@ -180,7 +188,7 @@ class RightFilterTest : DatabaseTest() {
             "Filter for Access State Restricted for Item that has only one right"
         ),
         arrayOf(
-            "col:subject1",
+            "col:subject3",
             listOf(
                 PublicationTypeFilter(
                     listOf(
@@ -627,6 +635,16 @@ class RightFilterTest : DatabaseTest() {
                 ZoneOffset.UTC,
             ),
             endDate = RestConverterTest.TODAY,
+            lastAppliedOn = OffsetDateTime.of(
+                2022,
+                5,
+                4,
+                1,
+                1,
+                0,
+                0,
+                ZoneOffset.UTC,
+            ),
             lastUpdatedBy = "user2",
             lastUpdatedOn = OffsetDateTime.of(
                 2022,
@@ -649,6 +667,9 @@ class RightFilterTest : DatabaseTest() {
             openContentLicence = "some licence",
             restrictedOpenContentLicence = false,
             zbwUserAgreement = true,
+            templateDescription = "some description",
+            templateId = null,
+            templateName = "exampleTemplate",
             groupIds = null,
         )
     }

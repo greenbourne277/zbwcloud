@@ -7,16 +7,29 @@ info:
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: http://gui.lori-dev.zbw-nett.zbw-kiel.de/api/v1
+    description: dev server
+  - url: http://localhost:8082/api/v1
+    description: local running
 tags:
-  - name: ItemRest
-    description: A bibliographic item
+  - name: right management
+    description: Managing rights for bibliographic items
 paths:
   /bookmark:
     $ref: 'bookmark.api.yaml#/bookmark'
   /bookmark/{id}:
     $ref: 'bookmark.api.yaml#/bookmark-id'
+  /bookmark/list:
+    $ref: 'bookmark.api.yaml#/bookmark-list'
   /bookmarkraw:
     $ref: 'bookmark.api.yaml#/bookmarkraw'
+  /bookmarktemplates:
+    $ref: 'bookmarktemplates.api.yaml#/bookmarktemplates'
+  /bookmarktemplates/batch:
+    $ref: 'bookmarktemplates.api.yaml#/bookmarktemplates-batch'
+  /errors/rights/list:
+    $ref: 'error.api.yaml#/right-errors'
   /group:
     $ref: 'group.api.yaml#/group'
   /group/{id}:
@@ -47,16 +60,32 @@ paths:
     $ref: 'right.api.yaml#/right'
   /right/{id}:
     $ref: 'right.api.yaml#/right-id'
-  /users/login:
-    $ref: 'users.api.yaml#/users-login'
-  /users/register:
-    $ref: 'users.api.yaml#/users-register'
-  /users/{id}:
-    $ref: 'users.api.yaml#/users-id'
-  /users/admin/role:
-    $ref: 'users.api.yaml#/users-admin-role'
+  /users/sessions:
+    $ref: 'users.api.yaml#/sessions'
+  /template:
+    $ref: 'template.api.yaml#/template'
+  /template/{id}:
+    $ref: 'template.api.yaml#/template-id'
+  /template/applications:
+    $ref: 'template.api.yaml#/template-applications'
+  /template/{id}/bookmarks:
+    $ref: 'template.api.yaml#/template-bookmarks'
+  /template/{id}/bookmarks/entries:
+    $ref: 'template.api.yaml#/template-bookmarks-entries'
+  /template/list:
+    $ref: 'template.api.yaml#/template-list'
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: JSESSIONID
+
   schemas:
     AccessStateRest:
       $ref: 'right.model.yaml#/AccessStateRest'
@@ -67,10 +96,12 @@ components:
     PublicationTypeRest:
       $ref: 'metadata.model.yaml#/PublicationTypeRest'
     RightRest:
-      $ref: 'item.model.yaml#/RightRest'
+      $ref: 'right.model.yaml#/RightRest'
     ErrorRest:
       $ref: 'errorhandling.model.yaml#/ErrorRest'
     BookmarkRest:
       $ref: 'bookmark.model.yaml#/BookmarkRest'
     BookmarkRawRest:
       $ref: 'bookmark.model.yaml#/BookmarkRawRest'
+    RightErrorRest:
+      $ref: 'error.model.yaml#/RightErrorRest'

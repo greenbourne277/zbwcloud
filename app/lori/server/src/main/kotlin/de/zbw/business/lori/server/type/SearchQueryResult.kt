@@ -7,8 +7,8 @@ package de.zbw.business.lori.server.type
  * @author Christian Bay (c.bay@zbw.eu)
  */
 data class SearchQueryResult(
-    val numberOfResults: Int,
-    val results: List<Item>,
+    val numberOfResults: Int, // Number of all search results
+    val results: List<Item>, // Results determined by offset and limit
     val accessState: Map<AccessState, Int>,
     val invalidSearchKey: List<String>,
     val hasLicenceContract: Boolean,
@@ -17,5 +17,6 @@ data class SearchQueryResult(
     val hasZbwUserAgreement: Boolean,
     val paketSigels: Map<String, Int>,
     val publicationType: Map<PublicationType, Int>,
+    val templateIds: Map<Int, Pair<String, Int>>,
     val zdbIds: Map<String, Int>,
 )

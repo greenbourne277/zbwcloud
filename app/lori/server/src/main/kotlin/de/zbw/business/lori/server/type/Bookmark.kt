@@ -8,7 +8,7 @@ import de.zbw.business.lori.server.PaketSigelFilter
 import de.zbw.business.lori.server.PublicationDateFilter
 import de.zbw.business.lori.server.PublicationTypeFilter
 import de.zbw.business.lori.server.RightValidOnFilter
-import de.zbw.business.lori.server.SearchKey
+import de.zbw.business.lori.server.SearchPair
 import de.zbw.business.lori.server.StartDateFilter
 import de.zbw.business.lori.server.TemporalValidityFilter
 import de.zbw.business.lori.server.ZDBIdFilter
@@ -21,18 +21,18 @@ import de.zbw.business.lori.server.ZDBIdFilter
  */
 data class Bookmark(
     val bookmarkName: String,
-    val bookmarkId: Int?,
-    val description: String?,
-    val searchKeys: Map<SearchKey, List<String>>?,
-    val publicationDateFilter: PublicationDateFilter?,
-    val publicationTypeFilter: PublicationTypeFilter?,
-    val paketSigelFilter: PaketSigelFilter?,
-    val zdbIdFilter: ZDBIdFilter?,
-    val accessStateFilter: AccessStateFilter?,
-    val temporalValidityFilter: TemporalValidityFilter?,
-    val formalRuleFilter: FormalRuleFilter?,
-    val startDateFilter: StartDateFilter?,
-    val endDateFilter: EndDateFilter?,
-    val validOnFilter: RightValidOnFilter?,
-    val noRightInformationFilter: NoRightInformationFilter?,
+    val bookmarkId: Int,
+    val description: String? = null,
+    val searchPairs: List<SearchPair>? = null,
+    val publicationDateFilter: PublicationDateFilter? = null,
+    val publicationTypeFilter: PublicationTypeFilter? = null,
+    val paketSigelFilter: PaketSigelFilter? = null,
+    val zdbIdFilter: ZDBIdFilter? = null,
+    val accessStateFilter: AccessStateFilter? = null,
+    val temporalValidityFilter: TemporalValidityFilter? = null,
+    val formalRuleFilter: FormalRuleFilter? = null,
+    val startDateFilter: StartDateFilter? = null,
+    val endDateFilter: EndDateFilter? = null,
+    val validOnFilter: RightValidOnFilter? = null,
+    val noRightInformationFilter: NoRightInformationFilter? = null,
 )

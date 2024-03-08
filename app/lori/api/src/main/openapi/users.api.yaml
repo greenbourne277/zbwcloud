@@ -1,174 +1,47 @@
-users-register:
-  post:
+sessions:
+  get:
     tags:
       - users
-    summary: Add a new right information to LoRi
-    operationId: registerUser
-    requestBody:
-      description: User credentials
-      content:
-        application/json:
-          schema:
-            $ref: 'users.model.yaml#/UserRest'
-      required: true
-    responses:
-      201:
-        description: Successfully created
-        content: { }
-      400:
-        description: Bad request
-        content:
-          application/json:
-            schema:
-              $ref: 'errorhandling.model.yaml#/ErrorRest'
-      409:
-        description: Username already exists
-        content:
-          application/json:
-            schema:
-              $ref: 'errorhandling.model.yaml#/ErrorRest'
-      500:
-        description: Internal error
-        content:
-          application/json:
-            schema:
-              $ref: 'errorhandling.model.yaml#/ErrorRest'
-    x-codegen-request-body-name: body
-users-login:
-  post:
-    tags:
-      - users
-    summary: Login with credentials
-    operationId: loginUser
-    requestBody:
-      description: User credentials
-      content:
-        application/json:
-          schema:
-            $ref: 'users.model.yaml#/UserRest'
-      required: true
+    summary: Receive session information
+    operationId: getUserSession
     responses:
       200:
-        description: Successfully logged in
+        description: Successful operation
         content:
           application/json:
             schema:
-              $ref: 'users.model.yaml#/AuthTokenRest'
-      400:
-        description: Bad request
-        content:
-          application/json:
-            schema:
-              $ref: 'errorhandling.model.yaml#/ErrorRest'
+              $ref: 'users.model.yaml#/UserSessionRest'
       401:
-        description: Login failed
-        content:
-          application/json:
-            schema:
-              $ref: 'errorhandling.model.yaml#/ErrorRest'
-      500:
-        description: Internal error
-        content:
-          application/json:
-            schema:
-              $ref: 'errorhandling.model.yaml#/ErrorRest'
-    x-codegen-request-body-name: body
-
-users-id:
-  put:
-    tags:
-      - users
-    summary: Update user data
-    operationId: updateUser
-    requestBody:
-      description: User credentials update
-      content:
-        application/json:
-          schema:
-            $ref: 'users.model.yaml#/UserRest'
-      required: true
-    responses:
-      204:
-        description: Successfully updated
-        content: { }
-      400:
-        description: Bad request
-        content:
-          application/json:
-            schema:
-              $ref: 'errorhandling.model.yaml#/ErrorRest'
-      401:
-        description: Update request denied
-        content:
-          application/json:
-            schema:
-              $ref: 'errorhandling.model.yaml#/ErrorRest'
-      500:
-        description: Internal error
-        content:
-          application/json:
-            schema:
-              $ref: 'errorhandling.model.yaml#/ErrorRest'
-    x-codegen-request-body-name: body
-  delete:
-    tags:
-      - users
-    summary: Delete user
-    operationId: deleteUserById
-    parameters:
-      - name: id
-        in: path
-        description: User id to delete
-        required: true
-        schema:
-          type: string
-    responses:
-      200:
-        description: Deletion of user was successfull
-        content: { }
-      400:
-        description: Bad request
-        content:
-          application/json:
-            schema:
-              $ref: 'errorhandling.model.yaml#/ErrorRest'
-      401:
-        description: Delete request denied
+        description: No valid session Id found. Unauthorized.
         content:
           application/json:
             schema:
               $ref: 'errorhandling.model.yaml#/ErrorRest'
       404:
-        description: User does not exist
+        description: ID does not exist
         content:
           application/json:
             schema:
               $ref: 'errorhandling.model.yaml#/ErrorRest'
-users-admin-role:
-  put:
+      500:
+        description: Internal error
+        content:
+          application/json:
+            schema:
+              $ref: 'errorhandling.model.yaml#/ErrorRest'
+  delete:
+    security:
+      - cookieAuth: []
     tags:
       - users
-    summary: Update role of a user
-    operationId: updateRole
-    requestBody:
-      description: Update role of a user
-      content:
-        application/json:
-          schema:
-            $ref: 'users.model.yaml#/RoleRest'
-      required: true
+    summary: Delete a session by ID
+    operationId: deleteSession
     responses:
-      204:
-        description: Successfully updated
-        content: { }
-      400:
-        description: Bad request
+      200:
+        description: Deletion of the session was successful
         content:
-          application/json:
-            schema:
-              $ref: 'errorhandling.model.yaml#/ErrorRest'
       401:
-        description: Update request denied
+        description: No valid cookie was passed
         content:
           application/json:
             schema:

@@ -1,11 +1,12 @@
 import { defineStore } from "pinia";
-import { Ref, ref } from "vue";
+import { reactive, Ref, ref } from "vue";
 import {
   AccessStateWithCountRest,
   PaketSigelWithCountRest,
   PublicationTypeWithCountRest,
   ZdbIdWithCountRest,
 } from "@/generated-sources/openapi";
+import {TemplateIdWithCountRest} from "@/generated-sources/openapi/models/TemplateIdWithCountRest";
 
 export const useSearchStore = defineStore("search", () => {
   const lastSearchTerm = ref("");
@@ -35,22 +36,27 @@ export const useSearchStore = defineStore("search", () => {
 
   const publicationTypeIdx: Ref<Array<boolean>> = ref([]);
   const publicationTypeReceived: Ref<Array<PublicationTypeWithCountRest>> = ref(
-    []
+    [],
   );
   const publicationTypeSelectedLastSearch: Ref<Array<string>> = ref([]);
 
-  const temporalEventInput = ref("");
-  const temporalEventStartDateFilter = ref(false);
-  const temporalEventEndDateFilter = ref(false);
+  const temporalEventState = reactive({
+    startDateOrEndDateValue: undefined as Date | undefined,
+    startDateOrEndDateOption: "",
+  });
 
   const temporalValidityFilterFuture = ref(false);
   const temporalValidityFilterPresent = ref(false);
   const temporalValidityFilterPast = ref(false);
-  const temporalValidOn = ref("");
+  const temporalValidOn = ref(undefined as Date | undefined);
 
   const zdbIdIdx: Ref<Array<boolean>> = ref([]);
   const zdbIdReceived: Ref<Array<ZdbIdWithCountRest>> = ref([]);
   const zdbIdSelectedLastSearch: Ref<Array<string>> = ref([]);
+
+  const templateIdIdx: Ref<Array<boolean>> = ref([]);
+  const templateIdReceived: Ref<Array<TemplateIdWithCountRest>> = ref([]);
+  const templateIdSelectedLastSearch: Ref<Array<string>> = ref([]);
 
   return {
     lastSearchTerm,
@@ -75,9 +81,10 @@ export const useSearchStore = defineStore("search", () => {
     publicationTypeSelectedLastSearch,
     publicationDateFrom,
     publicationDateTo,
-    temporalEventInput,
-    temporalEventStartDateFilter,
-    temporalEventEndDateFilter,
+    templateIdIdx,
+    templateIdReceived,
+    templateIdSelectedLastSearch,
+    temporalEventState,
     temporalValidityFilterFuture,
     temporalValidityFilterPast,
     temporalValidityFilterPresent,

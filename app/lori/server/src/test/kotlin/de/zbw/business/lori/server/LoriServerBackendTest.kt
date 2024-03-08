@@ -1,5 +1,6 @@
 package de.zbw.business.lori.server
 
+import de.zbw.api.lori.server.type.Either
 import de.zbw.business.lori.server.type.AccessState
 import de.zbw.business.lori.server.type.BasisAccessState
 import de.zbw.business.lori.server.type.BasisStorage
@@ -7,6 +8,7 @@ import de.zbw.business.lori.server.type.Item
 import de.zbw.business.lori.server.type.ItemMetadata
 import de.zbw.business.lori.server.type.ItemRight
 import de.zbw.business.lori.server.type.PublicationType
+import de.zbw.business.lori.server.type.RightError
 import de.zbw.persistence.lori.server.DatabaseConnector
 import de.zbw.persistence.lori.server.DatabaseTest
 import io.mockk.every
@@ -16,6 +18,7 @@ import io.mockk.unmockkAll
 import io.opentelemetry.api.OpenTelemetry
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.MatcherAssert.assertThat
+import org.junit.Assert
 import org.testng.annotations.AfterClass
 import org.testng.annotations.BeforeClass
 import org.testng.annotations.DataProvider
@@ -58,10 +61,10 @@ class LoriServerBackendTest : DatabaseTest() {
     fun testRoundtrip() {
         // given
         val givenMetadataEntries = arrayOf(
-            TEST_Metadata,
-            TEST_Metadata.copy(metadataId = "no_rights"),
+            TEST_METADATA.copy(metadataId = "roundtrip"),
+            TEST_METADATA.copy(metadataId = "no_rights"),
         )
-        val rightAssignments = TEST_RIGHT to listOf(TEST_Metadata.metadataId)
+        val rightAssignments = TEST_RIGHT to listOf(givenMetadataEntries[0].metadataId)
 
         // when
         backend.insertMetadataElements(givenMetadataEntries.toList())
@@ -81,11 +84,11 @@ class LoriServerBackendTest : DatabaseTest() {
     fun testGetList() {
         // given
         val givenMetadata = arrayOf(
-            TEST_Metadata.copy(metadataId = "zzz", publicationDate = LocalDate.of(1978, 1, 1)),
-            TEST_Metadata.copy(metadataId = "zzz2", publicationDate = LocalDate.of(1978, 1, 1)),
-            TEST_Metadata.copy(metadataId = "aaa"),
-            TEST_Metadata.copy(metadataId = "abb"),
-            TEST_Metadata.copy(metadataId = "acc"),
+            TEST_METADATA.copy(metadataId = "zzz", publicationDate = LocalDate.of(1978, 1, 1)),
+            TEST_METADATA.copy(metadataId = "zzz2", publicationDate = LocalDate.of(1978, 1, 1)),
+            TEST_METADATA.copy(metadataId = "aaa"),
+            TEST_METADATA.copy(metadataId = "abb"),
+            TEST_METADATA.copy(metadataId = "acc"),
         )
 
         backend.insertMetadataElements(givenMetadata.toList())
@@ -143,7 +146,7 @@ class LoriServerBackendTest : DatabaseTest() {
     @Test
     fun testUpsert() {
         // given
-        val expectedMetadata = TEST_Metadata.copy(band = "anotherband")
+        val expectedMetadata = TEST_METADATA.copy(band = "anotherband")
 
         // when
         backend.upsertMetadataElements(listOf(expectedMetadata))
@@ -152,7 +155,7 @@ class LoriServerBackendTest : DatabaseTest() {
         // then
         assertThat(received, `is`(listOf(expectedMetadata)))
 
-        val expectedMetadata2 = TEST_Metadata.copy(band = "anotherband2")
+        val expectedMetadata2 = TEST_METADATA.copy(band = "anotherband2")
         // when
         backend.upsertMetadataElements(listOf(expectedMetadata2))
         val received2 = backend.getMetadataElementsByIds(listOf(expectedMetadata2.metadataId))
@@ -173,90 +176,228 @@ class LoriServerBackendTest : DatabaseTest() {
         arrayOf(
             arrayOf(
                 "bllaaaa",
-                emptyMap<SearchKey, List<String>>(),
+                emptyList<SearchPair>(),
                 "no search key pair"
             ),
             arrayOf(
                 "bllaaaa col:bar",
-                mapOf(
-                    SearchKey.COLLECTION to listOf("bar"),
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "bar",
+                    )
                 ),
                 "single case with random string"
             ),
             arrayOf(
                 "col:bar",
-                mapOf(
-                    SearchKey.COLLECTION to listOf("bar"),
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "bar",
+                    )
                 ),
                 "single case no additional string"
             ),
             arrayOf(
                 "                col:bar                             ",
-                mapOf(
-                    SearchKey.COLLECTION to listOf("bar"),
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "bar",
+                    )
                 ),
                 "single case with whitespace"
             ),
             arrayOf(
                 "col:bar zdb:foo",
-                mapOf(
-                    SearchKey.COLLECTION to listOf("bar"),
-                    SearchKey.ZDB_ID to listOf("foo"),
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "bar",
+                    ),
+                    SearchPair(
+                        SearchKey.ZDB_ID,
+                        "foo",
+                    ),
                 ),
                 "two search keys"
             ),
             arrayOf(
-                "col:'foo bar'",
-                mapOf(
-                    SearchKey.COLLECTION to listOf("foo", "bar"),
+                "col:'foo | bar'",
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "foo | bar",
+                    )
                 ),
                 "multiple words quoted"
             ),
             arrayOf(
                 "col:'foobar'",
-                mapOf(
-                    SearchKey.COLLECTION to listOf("foobar"),
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "foobar",
+                    ),
                 ),
                 "single word quoted"
             ),
             arrayOf(
-                "            col:'foobar'           com:'foo bar'",
-                mapOf(
-                    SearchKey.COLLECTION to listOf("foobar"),
-                    SearchKey.COMMUNITY to listOf("foo", "bar"),
+                "col:\"foobar\"",
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "foobar",
+                    ),
+                ),
+                "single word doublequoted"
+            ),
+            arrayOf(
+                "            col:'foobar'           com:'foo & bar'",
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "foobar",
+                    ),
+                    SearchPair(
+                        SearchKey.COMMUNITY,
+                        "foo & bar",
+                    ),
                 ),
                 "mutltiple and single words quoted with whitespaces"
             ),
             arrayOf(
                 "col:col-foo-bar",
-                mapOf(
-                    SearchKey.COLLECTION to listOf("col-foo-bar"),
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "col-foo-bar",
+                    )
                 ),
                 "multiple words minus"
             ),
             arrayOf(
                 "col:'col-foo-bar'",
-                mapOf(
-                    SearchKey.COLLECTION to listOf("col-foo-bar"),
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "col-foo-bar",
+                    ),
                 ),
                 "multiple words quoted minus"
             ),
             arrayOf(
                 "col:'col-;:'",
-                mapOf(
-                    SearchKey.COLLECTION to listOf("col-;:"),
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "col-;\\:",
+                    ),
                 ),
                 "handle special characters"
+            ),
+            arrayOf(
+                "col:'(subject1 | subject2) & subject3'",
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "(subject1 | subject2) & subject3",
+                    ),
+                ),
+                "with parentheses"
+            ),
+            arrayOf(
+                "col:\"(subject1 | subject2) & subject3\"",
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "(subject1 | subject2) & subject3",
+                    ),
+                ),
+                "with parentheses and double quotes"
+            ),
+            arrayOf(
+                "col:\"(anyNumberOfSp\$c!;,~ | subject2) & subject3\"",
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "(anyNumberOfSp\$c!;,~ | subject2) & subject3",
+                    ),
+                ),
+                "with parentheses and double quotes"
+            ),
+            arrayOf(
+                "col:\"(subject1 subject2 subject3 | subject4) & subject5\"",
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "(subject1 & subject2 & subject3 | subject4) & subject5",
+                    ),
+                ),
+                "insert missing & with other logical operations"
+            ),
+            arrayOf(
+                "col:\"subject1 subject2 subject3 subject4 subject5\"",
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "subject1 & subject2 & subject3 & subject4 & subject5",
+                    ),
+                ),
+                "insert missing & standard case"
+            ),
+            arrayOf(
+                "col:\'subject1 subject2 subject3 subject4 subject5\'",
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "subject1 & subject2 & subject3 & subject4 & subject5",
+                    ),
+                ),
+                "insert missing & standard case"
+            ),
+            arrayOf(
+                "col:\'subject1 & subject2 :\'",
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "subject1 & subject2 & \\:",
+                    ),
+                ),
+                "escape : char",
+            ),
+            arrayOf(
+                "col:\'subject1 & subject2 \\:\'",
+                listOf(
+                    SearchPair(
+                        SearchKey.COLLECTION,
+                        "subject1 & subject2 & \\:",
+                    ),
+                ),
+                "escape : char but not doubled",
             ),
         )
 
     @Test(dataProvider = DATA_FOR_SEARCH_KEY_PARSING)
     fun testParseSearchKeys(
         searchTerm: String,
-        expectedKeys: Map<SearchKey, List<String>>,
+        expectedKeys: List<SearchPair>,
         description: String,
     ) {
-        assertThat(description, LoriServerBackend.parseValidSearchKeys(searchTerm), `is`(expectedKeys))
+        val receivedPairs: List<SearchPair> = LoriServerBackend.parseValidSearchPairs(searchTerm)
+        receivedPairs.forEachIndexed { index, searchPair ->
+            assertThat(
+                description,
+                searchPair.values,
+                `is`(expectedKeys[index].values),
+            )
+            assertThat(
+                description,
+                searchPair.key,
+                `is`(expectedKeys[index].key),
+            )
+        }
     }
 
     @DataProvider(name = DATA_FOR_INVALID_SEARCH_KEY_PARSING)
@@ -287,8 +428,8 @@ class LoriServerBackendTest : DatabaseTest() {
     fun testSearchQuery() {
         // given
         val givenMetadataEntries = arrayOf(
-            TEST_Metadata.copy(metadataId = "search_test_1", zdbId = "zbdTest"),
-            TEST_Metadata.copy(metadataId = "search_test_2", zdbId = "zbdTest"),
+            TEST_METADATA.copy(metadataId = "search_test_1", zdbId = "zbdTest"),
+            TEST_METADATA.copy(metadataId = "search_test_2", zdbId = "zbdTest"),
         )
         val rightAssignments = TEST_RIGHT to listOf(givenMetadataEntries[0].metadataId)
 
@@ -361,6 +502,10 @@ class LoriServerBackendTest : DatabaseTest() {
                 "  col:'bar baz'  \t  ",
                 false,
             ),
+            arrayOf(
+                "com:\"internation centre of\"",
+                false,
+            ),
         )
 
     @Test(dataProvider = DATA_FOR_REMOVE_VALID_SEARCH_TOKEN)
@@ -372,7 +517,343 @@ class LoriServerBackendTest : DatabaseTest() {
         )
     }
 
+    @Test
+    fun testSearchKeyConversion() {
+        val given = listOf(
+            SearchPair(SearchKey.TITLE, "foobar & baz"),
+            SearchPair(SearchKey.COLLECTION, "col1"),
+            SearchPair(SearchKey.COMMUNITY, "com1"),
+            SearchPair(SearchKey.ZDB_ID, "zdb1"),
+        )
+        val received = LoriServerBackend.parseValidSearchPairs(
+            LoriServerBackend.searchPairsToString(given)
+        )
+        received.forEachIndexed { index, searchPair ->
+            assertThat(
+                searchPair.values,
+                `is`(given[index].values),
+            )
+            assertThat(
+                searchPair.key,
+                `is`(given[index].key),
+            )
+        }
+    }
+
+    @DataProvider(name = DATA_FOR_CHECK_RIGHT_CONFLICTS)
+    fun createDataForCheckDateRightConflicts() =
+        arrayOf(
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2025, 6, 1),
+                    endDate = LocalDate.of(2025, 9, 1),
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 1),
+                    endDate = LocalDate.of(2026, 9, 1),
+                ),
+                false,
+                "Valid. Start and end date completely disjunct",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2025, 6, 1),
+                    endDate = LocalDate.of(2025, 9, 1),
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2025, 9, 1),
+                    endDate = LocalDate.of(2026, 9, 1),
+                ),
+                true,
+                "Invalid overlap. Start or end date match on one day",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2025, 9, 1),
+                    endDate = LocalDate.of(2026, 9, 1),
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2025, 6, 1),
+                    endDate = LocalDate.of(2025, 9, 1),
+                ),
+                true,
+                "Invalid overlap. Start or end date match on one day",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 1),
+                    endDate = LocalDate.of(2026, 9, 1),
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2025, 3, 1),
+                    endDate = LocalDate.of(2026, 6, 1),
+                ),
+                true,
+                "Invalid overlap. Start or end date match on one day",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2025, 3, 1),
+                    endDate = LocalDate.of(2026, 6, 1),
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 1),
+                    endDate = LocalDate.of(2026, 9, 1),
+                ),
+                true,
+                "Invalid overlap. Start or end date match on one day",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 1),
+                    endDate = LocalDate.of(2026, 9, 1),
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 4, 1),
+                    endDate = LocalDate.of(2026, 7, 1),
+                ),
+                true,
+                "Invalid overlap.",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 4, 1),
+                    endDate = LocalDate.of(2026, 7, 1),
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 1),
+                    endDate = LocalDate.of(2026, 9, 1),
+                ),
+                true,
+                "Invalid overlap.",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 1),
+                    endDate = LocalDate.of(2026, 9, 1),
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 7, 1),
+                    endDate = LocalDate.of(2026, 8, 1),
+                ),
+                true,
+                "Invalid inner overlap.",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 7, 1),
+                    endDate = LocalDate.of(2026, 8, 1),
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 1),
+                    endDate = LocalDate.of(2026, 9, 1),
+                ),
+                true,
+                "Invalid inner overlap.",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 1),
+                    endDate = null,
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 4, 1),
+                    endDate = LocalDate.of(2026, 7, 1),
+                ),
+                true,
+                "Invalid overlap.",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 4, 1),
+                    endDate = LocalDate.of(2026, 7, 1),
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 1),
+                    endDate = null,
+                ),
+                true,
+                "Invalid overlap.",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 1),
+                    endDate = LocalDate.of(2026, 7, 1),
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 2),
+                    endDate = null
+                ),
+                true,
+                "Invalid overlap.",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 2),
+                    endDate = null
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 1),
+                    endDate = LocalDate.of(2026, 7, 1),
+                ),
+                true,
+                "Invalid overlap.",
+            ),
+            arrayOf(
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2024, 6, 1),
+                    endDate = LocalDate.of(2024, 7, 1),
+                ),
+                TEST_RIGHT.copy(
+                    startDate = LocalDate.of(2026, 6, 2),
+                    endDate = null
+                ),
+                false,
+                "No overlap.",
+            ),
+        )
+
+    @Test(dataProvider = DATA_FOR_CHECK_RIGHT_CONFLICTS)
+    fun testCheckDateRightConflicts(
+        r1: ItemRight,
+        r2: ItemRight,
+        expected: Boolean,
+        description: String,
+    ) {
+        assertThat(
+            description,
+            LoriServerBackend.checkForDateConflict(r1, r2),
+            `is`(expected),
+        )
+    }
+
+    @Test
+    fun testInsertItemEntry() {
+        val givenMetadata = TEST_METADATA
+        val givenRight1 = TEST_RIGHT.copy(rightId = "1")
+        val givenRight2 = TEST_RIGHT.copy(rightId = "2")
+        val givenRight3 = TEST_RIGHT.copy(rightId = "3")
+
+        backend.insertMetadataElement(givenMetadata)
+        backend.insertRight(givenRight1)
+        backend.insertRight(givenRight2)
+        backend.insertRight(givenRight3)
+
+        backend.insertItemEntry(givenMetadata.metadataId, givenRight1.rightId!!)
+
+        // Insert first conflict, no deletion
+        when (backend.insertItemEntry(givenMetadata.metadataId, givenRight2.rightId!!)) {
+            is Either.Left -> {
+                // Error is expected due to conflict
+            }
+
+            is Either.Right -> {
+                Assert.fail("An error should be raised due to a given conflict.")
+            }
+        }
+
+        when (backend.insertItemEntry(givenMetadata.metadataId, givenRight3.rightId!!, true)) {
+            is Either.Left -> {
+                // Error is expected due to conflict
+            }
+
+            is Either.Right -> {
+                Assert.fail("An error should be raised due to a given conflict.")
+            }
+        }
+
+        val existingRights =
+            backend.getRightsByIds(listOf(givenRight1.rightId!!, givenRight2.rightId!!, givenRight3.rightId!!))
+                .map { it.rightId }
+                .toSet()
+        assertThat(
+            existingRights,
+            `is`(setOf(givenRight1.rightId!!, givenRight2.rightId!!))
+        )
+    }
+
+    @DataProvider(name = DATA_FOR_FIND_RIGHT_CONFLICTS)
+    fun createDataForFindItemsWithConflicts() =
+        arrayOf(
+            arrayOf(
+                setOf(
+                    Item(
+                        metadata = TEST_METADATA,
+                        rights = listOf(TEST_RIGHT),
+                    )
+                ),
+                TEST_RIGHT,
+                emptySet<Item>(),
+                0,
+                "Skip same right",
+            ),
+            arrayOf(
+                setOf(
+                    Item(
+                        metadata = TEST_METADATA,
+                        rights = listOf(TEST_RIGHT),
+                    )
+                ),
+                TEST_RIGHT.copy(rightId = "testConflict"),
+                setOf(
+                    Item(
+                        metadata = TEST_METADATA,
+                        rights = listOf(TEST_RIGHT),
+                    )
+                ),
+                1,
+                "Find duplicate",
+            ),
+            arrayOf(
+                setOf(
+                    Item(
+                        metadata = TEST_METADATA,
+                        rights = listOf(TEST_RIGHT),
+                    ),
+                    Item(
+                        metadata = TEST_METADATA.copy(metadataId = "metadata2"),
+                        rights = listOf(TEST_RIGHT, TEST_RIGHT.copy(rightId = "right2")),
+                    ),
+                ),
+                TEST_RIGHT.copy(
+                    rightId = "testConflict",
+                    startDate = LocalDate.MIN,
+                    endDate = LocalDate.MIN.plusDays(1)
+                ),
+                emptySet<Item>(),
+                0,
+                "No conflicts found",
+            ),
+        )
+
+    @Test(dataProvider = DATA_FOR_FIND_RIGHT_CONFLICTS)
+    fun testFindItemsWithConflicts(
+        searchResults: Set<Item>,
+        rightConflictToCheck: ItemRight,
+        expected: Set<Item>,
+        expectedErrorCount: Int,
+        reason: String,
+    ) {
+        val received: Pair<Set<Item>, List<RightError>> = LoriServerBackend.findItemsWithConflicts(
+            searchResults,
+            rightConflictToCheck,
+            1,
+        )
+        assertThat(
+            reason,
+            received.first,
+            `is`(expected)
+        )
+        assertThat(
+            reason,
+            received.second.size,
+            `is`(expectedErrorCount),
+        )
+    }
+
     companion object {
+        const val DATA_FOR_CHECK_RIGHT_CONFLICTS = "DATA_FOR_CHECK_RIGHT_CONFLICTS"
+        const val DATA_FOR_FIND_RIGHT_CONFLICTS = "DATA_FOR_FIND_RIGHT_CONFLICTS"
         const val DATA_FOR_INVALID_SEARCH_KEY_PARSING = "DATA_FOR_INVALID_SEARCH_KEY_PARSING"
         const val DATA_FOR_SEARCH_KEY_PARSING = "DATA_FOR_SEARCH_KEY_PARSING"
         const val DATA_FOR_REMOVE_VALID_SEARCH_TOKEN = "DATA_FOR_REMOVE_VALID_SEARCH_TOKEN"
@@ -389,11 +870,13 @@ class LoriServerBackendTest : DatabaseTest() {
         )!!
 
         private val TODAY: LocalDate = LocalDate.of(2022, 3, 1)
-        val TEST_Metadata = ItemMetadata(
+        val TEST_METADATA = ItemMetadata(
             metadataId = "that-test",
             author = "Colbjørnsen, Terje",
             band = "band",
+            collectionHandle = "colHandle",
             collectionName = "collectionName",
+            communityHandle = "comHandle",
             communityName = "communityName",
             createdBy = "user1",
             createdOn = NOW,
@@ -409,6 +892,7 @@ class LoriServerBackendTest : DatabaseTest() {
             publicationDate = LocalDate.of(2022, 9, 26),
             rightsK10plus = "some rights",
             storageDate = NOW.minusDays(3),
+            subCommunitiesHandles = listOf("111", "112"),
             title = "Important title",
             titleJournal = null,
             titleSeries = null,
@@ -425,6 +909,7 @@ class LoriServerBackendTest : DatabaseTest() {
             createdOn = NOW,
             endDate = TODAY,
             groupIds = emptyList(),
+            lastAppliedOn = null,
             lastUpdatedBy = "user2",
             lastUpdatedOn = NOW,
             licenceContract = "some contract",
@@ -437,6 +922,9 @@ class LoriServerBackendTest : DatabaseTest() {
             openContentLicence = "some licence",
             restrictedOpenContentLicence = false,
             startDate = TODAY.minusDays(1),
+            templateDescription = "descritpion",
+            templateId = null,
+            templateName = "name",
             zbwUserAgreement = true,
         )
     }

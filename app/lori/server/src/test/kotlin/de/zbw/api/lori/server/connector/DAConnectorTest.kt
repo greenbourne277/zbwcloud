@@ -9,7 +9,9 @@ import de.zbw.api.lori.server.type.DAItem
 import de.zbw.api.lori.server.type.DAMetadata
 import de.zbw.api.lori.server.type.DAObject
 import de.zbw.api.lori.server.type.DAResourcePolicy
+import de.zbw.api.lori.server.type.RestConverterTest.Companion.TEST_METADATA
 import de.zbw.business.lori.server.LoriServerBackend
+import de.zbw.business.lori.server.type.ItemMetadata
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
@@ -74,7 +76,7 @@ class DAConnectorTest {
                 respond(
                     content = ByteReadChannel(
                         """
-                        {"id":156,"name":"Test Christian","handle":"11159/4266","type":"community","link":"/econis-archiv/rest/communities/156","expand":[],"logo":null,"parentCommunity":null,"copyrightText":"","introductoryText":"","shortDescription":"TS","sidebarText":"","countItems":6,"subcommunities":[],"collections":[{"id":249,"name":"Test Lori","handle":"11159/4267","type":"collection","link":"/econis-archiv/rest/collections/249","expand":["parentCommunityList","parentCommunity","items","license","logo","all"],"logo":null,"parentCommunity":null,"parentCommunityList":[],"items":[],"license":null,"copyrightText":"","introductoryText":"","shortDescription":"","sidebarText":"","numberItems":6}]}
+                        {"id":156,"name":"Test Christian","handle":"11159/4266","type":"community","link":"/econis-archiv/rest/communities/156","expand":[],"logo":null,"parentCommunity":null,"copyrightText":"","introductoryText":"","shortDescription":"TS","sidebarText":"","countItems":6,"subcommunities":[{"id":78,"name":"Centre for European Studies, Alexandru Ioan Cuza University of Iași","handle":"11159/1114","type":"community","link":"/econis-archiv/rest/communities/78","expand":["parentCommunity","collections","subCommunities","logo","all"],"logo":null,"parentCommunity":null,"copyrightText":"","introductoryText":"","shortDescription":"","sidebarText":"","countItems":9,"subcommunities":[],"collections":[]}],"collections":[{"id":249,"name":"Test Lori","handle":"11159/4267","type":"collection","link":"/econis-archiv/rest/collections/249","expand":["parentCommunityList","parentCommunity","items","license","logo","all"],"logo":null,"parentCommunity":null,"parentCommunityList":[],"items":[],"license":null,"copyrightText":"","introductoryText":"","shortDescription":"","sidebarText":"","numberItems":6}]}
                     """.trimMargin()
                     ),
                     status = HttpStatusCode.OK,
@@ -84,7 +86,6 @@ class DAConnectorTest {
             val daConnector = DAConnector(
                 config = mockk() {
                     every { digitalArchiveAddress } returns "http://primula-qs.zbw-nett.zbw-kiel.de/econis-archiv"
-                    every { digitalArchiveCommunity } returns listOf("240")
                     every { digitalArchiveBasicAuth } returns "pw"
                 },
                 engine = mockEngine,
@@ -93,7 +94,7 @@ class DAConnectorTest {
             val expected = TEST_COMMUNITY
 
             // when
-            val received = daConnector.getCommunity("sometoken", "240")
+            val received = daConnector.getCommunity("sometoken", 240)
 
             // then
             assertThat(received, `is`(expected))
@@ -123,7 +124,14 @@ class DAConnectorTest {
                 coEvery { importCollection(any(), any()) } returns listOf(TEST_ITEM)
             }
             // when
-            val receivedItems = daConnector.startFullImport("token", listOf(1, 2, 3))
+            val receivedItems = daConnector.startFullImport(
+                "token",
+                TEST_COMMUNITY.copy(
+                    collections = listOf(
+                        TEST_COLLECTION, TEST_COLLECTION, TEST_COLLECTION
+                    )
+                )
+            )
 
             // then
             assertThat(receivedItems, `is`(listOf(1, 1, 1)))
@@ -389,10 +397,46 @@ class DAConnectorTest {
         )
     }
 
+    @Test
+    fun testShortenHandle() {
+        val given: ItemMetadata = TEST_METADATA.copy(
+            handle = "http://hdl.handle.net/11159/42"
+        )
+
+        val received = DAConnector.shortenHandle(given)
+        assertThat(
+            received,
+            `is`(given.copy(handle = "11159/42")),
+        )
+    }
+
     companion object {
         const val DATA_FOR_SERIALIZATION = "DATA_FOR_SERIALIZATION"
         const val REST_URL = "http://test-archive.de"
 
+        val TEST_SUBCOMMUNITY = DACommunity(
+            id = 78,
+            name = "Centre for European Studies, Alexandru Ioan Cuza University of Iași",
+            handle = "11159/1114",
+            type = "community",
+            link = "/econis-archiv/rest/communities/78",
+            expand = listOf(
+                "parentCommunity",
+                "collections",
+                "subCommunities",
+                "logo",
+                "all",
+            ),
+            logo = null,
+            parentCommunity = null,
+            copyrightText = "",
+            introductoryText = "",
+            shortDescription = "",
+            sidebarText = "",
+            countItems = 9,
+            subcommunities = emptyList(),
+            collections = emptyList(),
+        )
         val TEST_COLLECTION = DACollection(
             id = 249,
             name = "Test Lori",
@@ -433,7 +477,7 @@ class DAConnectorTest {
             introductoryText = "",
             shortDescription = "TS",
             sidebarText = "",
-            subcommunities = emptyList(),
+            subcommunities = listOf(TEST_SUBCOMMUNITY),
             collections = listOf(TEST_COLLECTION)
         )
 

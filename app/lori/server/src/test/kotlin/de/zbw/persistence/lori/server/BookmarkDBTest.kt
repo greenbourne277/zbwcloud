@@ -32,7 +32,7 @@ class BookmarkDBTest : DatabaseTest() {
 
         // Case: Update
         val expectedBMUpdated = TEST_BOOKMARK.copy(noRightInformationFilter = NoRightInformationFilter())
-        val updatedBMs = dbConnector.updateBookmarksById(generatedId, expectedBMUpdated)
+        val updatedBMs = dbConnector.updateBookmarkById(generatedId, expectedBMUpdated)
         assertThat(updatedBMs, `is`(1))
         assertThat(
             expectedBMUpdated.copy(bookmarkId = generatedId).toString(),
@@ -48,12 +48,41 @@ class BookmarkDBTest : DatabaseTest() {
         assertThat(receivedBookmarksAfterDeletion, `is`(emptyList()))
     }
 
+    @Test
+    fun testGetBookmarkList() {
+        val bookmark1 = TEST_BOOKMARK.copy(description = "foo")
+        val receivedId1 = dbConnector.insertBookmark(bookmark1)
+        val expected1 = bookmark1.copy(bookmarkId = receivedId1)
+        assertThat(
+            dbConnector.getBookmarkList(50, 0).toString(),
+            `is`(
+                listOf(
+                    expected1
+                ).toString()
+            )
+        )
+
+        val bookmark2 = TEST_BOOKMARK.copy(description = "bar")
+        val receivedId2 = dbConnector.insertBookmark(bookmark2)
+        val expected2 = bookmark2.copy(bookmarkId = receivedId2)
+
+        assertThat(
+            dbConnector.getBookmarkList(50, 0).toString(),
+            `is`(
+                listOf(
+                    expected1,
+                    expected2,
+                ).toString()
+            )
+        )
+    }
+
     companion object {
         val TEST_BOOKMARK = Bookmark(
             bookmarkId = 1,
             bookmarkName = "test",
             description = "some description",
-            searchKeys = LoriServerBackend.parseValidSearchKeys("tit:someTitle"),
+            searchPairs = LoriServerBackend.parseValidSearchPairs("tit:someTitle"),
             publicationDateFilter = QueryParameterParser.parsePublicationDateFilter("2020-2030"),
             publicationTypeFilter = QueryParameterParser.parsePublicationTypeFilter("BOOK,ARTICLE"),
             accessStateFilter = QueryParameterParser.parseAccessStateFilter("OPEN,RESTRICTED"),

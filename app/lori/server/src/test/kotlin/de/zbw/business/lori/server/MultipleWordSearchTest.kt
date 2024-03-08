@@ -9,9 +9,11 @@ import de.zbw.persistence.lori.server.ItemDBTest.Companion.TEST_Metadata
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
+import io.mockk.unmockkAll
 import io.opentelemetry.api.OpenTelemetry
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.core.Is.`is`
+import org.testng.annotations.AfterClass
 import org.testng.annotations.BeforeClass
 import org.testng.annotations.DataProvider
 import org.testng.annotations.Test
@@ -50,10 +52,15 @@ class MultipleWordSearchTest : DatabaseTest() {
         }
     }
 
+    @AfterClass
+    fun afterTests() {
+        unmockkAll()
+    }
+
     @DataProvider(name = DATA_FOR_MULTIPLE_WORDS)
     fun createDataForMultipleWords() = arrayOf(
         arrayOf(
-            "col:'subject1 subject2'",
+            "col:'subject1 & subject2'",
             10,
             0,
             multipleWords,
@@ -61,7 +68,7 @@ class MultipleWordSearchTest : DatabaseTest() {
             "search for two words next to each other"
         ),
         arrayOf(
-            "col:'subject1 subject3'",
+            "col:'subject1 & subject3'",
             10,
             0,
             multipleWords,

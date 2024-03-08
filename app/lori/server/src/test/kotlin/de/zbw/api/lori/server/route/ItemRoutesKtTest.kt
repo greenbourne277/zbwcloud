@@ -3,6 +3,7 @@ package de.zbw.api.lori.server.route
 import com.google.gson.reflect.TypeToken
 import de.zbw.api.lori.server.ServicePoolWithProbes
 import de.zbw.api.lori.server.config.LoriConfiguration
+import de.zbw.api.lori.server.type.Either
 import de.zbw.api.lori.server.type.toBusiness
 import de.zbw.business.lori.server.LoriServerBackend
 import de.zbw.business.lori.server.type.SearchQueryResult
@@ -53,14 +54,15 @@ class ItemRoutesKtTest {
 
         val backend = mockk<LoriServerBackend>(relaxed = true) {
             every { itemContainsEntry(givenMetadataId, givenRightId) } returns false
-            every { insertItemEntry(givenMetadataId, givenRightId) } returns "foo"
+            every { insertItemEntry(givenMetadataId, givenRightId, any()) } returns Either.Right("foo")
         }
         val servicePool = getServicePool(backend)
 
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.post("/api/v1/item") {
                 header(HttpHeaders.Accept, ContentType.Text.Plain.contentType)
@@ -84,8 +86,9 @@ class ItemRoutesKtTest {
 
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.post("/api/v1/item") {
                 header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
@@ -108,8 +111,9 @@ class ItemRoutesKtTest {
 
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.post("/api/v1/item") {
                 header(HttpHeaders.Accept, ContentType.Text.Plain.contentType)
@@ -133,8 +137,9 @@ class ItemRoutesKtTest {
 
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.post("/api/v1/item") {
                 header(HttpHeaders.Accept, ContentType.Text.Plain.contentType)
@@ -163,8 +168,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.delete("/api/v1/item/$givenMetadataId/$givenRightId")
             assertThat("Should return OK", response.status, `is`(HttpStatusCode.OK))
@@ -185,8 +191,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.delete("/api/v1/item/$givenMetadataId/$givenRightId")
             assertThat("Should return OK", response.status, `is`(HttpStatusCode.OK))
@@ -206,8 +213,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.delete("/api/v1/item/$givenMetadataId/$givenRightId")
             assertThat("Should return Internal Error", response.status, `is`(HttpStatusCode.InternalServerError))
@@ -226,8 +234,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/item/metadata/$givenMetadataId")
             val content: String = response.bodyAsText()
@@ -247,8 +256,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/item/metadata/$givenMetadataId")
             assertThat("Should return 404", response.status, `is`(HttpStatusCode.NotFound))
@@ -265,8 +275,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/item/metadata/$givenMetadataId")
             assertThat("Should return Internal Error", response.status, `is`(HttpStatusCode.InternalServerError))
@@ -284,8 +295,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.delete("/api/v1/item/metadata/$givenMetadataId")
             assertThat("Should return OK", response.status, `is`(HttpStatusCode.OK))
@@ -303,8 +315,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.delete("/api/v1/item/metadata/$givenMetadataId")
             assertThat("Should return Internal Error", response.status, `is`(HttpStatusCode.InternalServerError))
@@ -322,8 +335,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.delete("/api/v1/item/right/$givenRightId")
             assertThat("Should return OK", response.status, `is`(HttpStatusCode.OK))
@@ -341,8 +355,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.delete("/api/v1/item/right/$givenRightId")
             assertThat("Should return Internal Error", response.status, `is`(HttpStatusCode.InternalServerError))
@@ -376,8 +391,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/item/list?limit=$limit&offset=$offset&pageSize=$pageSize")
             val content: String = response.bodyAsText()
@@ -427,8 +443,9 @@ class ItemRoutesKtTest {
         )
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/item/list")
             val content: String = response.bodyAsText()
@@ -485,11 +502,13 @@ class ItemRoutesKtTest {
             config = CONFIG,
             backend = mockk(),
             tracer = tracer,
+            samlUtils = mockk(),
         )
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/item/list?limit=$limit&offset=$offset")
             assertThat(msg, response.status, `is`(HttpStatusCode.BadRequest))
@@ -511,8 +530,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/item/count/right/${expectedAnswer.rightId}")
             val content: String = response.bodyAsText()
@@ -534,8 +554,9 @@ class ItemRoutesKtTest {
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/item/count/right/$rightId")
             assertThat("Should return Internal Error", response.status, `is`(HttpStatusCode.InternalServerError))
@@ -570,6 +591,7 @@ class ItemRoutesKtTest {
                 hasZbwUserAgreement = false,
                 invalidSearchKey = listOf("cor"),
                 hasSearchTokenWithNoKey = false,
+                templateIdWithCount = emptyList(),
             )
         val backend = mockk<LoriServerBackend>(relaxed = true) {
             every {
@@ -595,6 +617,7 @@ class ItemRoutesKtTest {
                     hasZbwUserAgreement = false,
                     invalidSearchKey = listOf("cor"),
                     hasSearchTokenWithNoKey = false,
+                    templateIds = emptyMap(),
                 )
                 )
         }
@@ -602,8 +625,9 @@ class ItemRoutesKtTest {
 
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response =
                 client.get("/api/v1/item/search?searchTerm=$searchTerm&limit=$limit&offset=$offset&pageSize=$pageSize&filterPublicationDate=$filterPublicationDate&filterPublicationType=$filterPublicationType")
@@ -639,6 +663,7 @@ class ItemRoutesKtTest {
                 hasZbwUserAgreement = false,
                 invalidSearchKey = listOf("cor"),
                 hasSearchTokenWithNoKey = false,
+                templateIdWithCount = emptyList(),
             )
         val backend = mockk<LoriServerBackend>(relaxed = true) {
             every {
@@ -664,6 +689,7 @@ class ItemRoutesKtTest {
                     hasZbwUserAgreement = false,
                     invalidSearchKey = listOf("cor"),
                     hasSearchTokenWithNoKey = false,
+                    templateIds = emptyMap(),
                 )
                 )
             every { countMetadataEntries() } returns expectedInformation.numberOfResults
@@ -672,8 +698,9 @@ class ItemRoutesKtTest {
 
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/item/search")
             val content: String = response.bodyAsText()
@@ -716,8 +743,9 @@ class ItemRoutesKtTest {
 
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response =
                 client.get("/api/v1/item/search?searchTerm=foobar&limit=$limit&offset=$offset&pageSize=$pageSize")
@@ -736,8 +764,9 @@ class ItemRoutesKtTest {
 
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/item/search?searchTerm=$searchTerm")
             assertThat(response.status, `is`(HttpStatusCode.InternalServerError))
@@ -755,7 +784,6 @@ class ItemRoutesKtTest {
             sqlPassword = "postgres",
             sqlUrl = "jdbc:someurl",
             digitalArchiveAddress = "https://archiveaddress",
-            digitalArchiveCommunity = listOf("5678"),
             digitalArchiveUsername = "testuser",
             digitalArchivePassword = "password",
             digitalArchiveBasicAuth = "basicauth",
@@ -763,6 +791,9 @@ class ItemRoutesKtTest {
             jwtIssuer = "0.0.0.0:8080",
             jwtRealm = "Lori ui",
             jwtSecret = "foobar",
+            duoSenderEntityId = "someId",
+            sessionSignKey = "8BADF00DDEADBEAFDEADBAADDEADBAAD",
+            sessionEncryptKey = "CAFEBABEDEADBEAFDEADBAADDEFEC8ED",
         )
 
         val ITEM_METADATA = MetadataRest(
@@ -814,6 +845,7 @@ class ItemRoutesKtTest {
             config = CONFIG,
             backend = backend,
             tracer = tracer,
+            samlUtils = mockk(),
         )
     }
 }

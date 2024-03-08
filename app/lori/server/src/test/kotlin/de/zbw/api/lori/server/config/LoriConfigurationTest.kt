@@ -15,9 +15,6 @@ class LoriConfigurationTest {
             arrayOf(
                 CONFIG,
             ),
-            arrayOf(
-                CONFIG.copy(digitalArchiveCommunity = listOf("1")),
-            ),
         )
 
     @Test(dataProvider = DATA_FOR_LORI_CONFIGURATION)
@@ -28,10 +25,6 @@ class LoriConfigurationTest {
         System.setProperty("lori.sql.user", expectedConfig.sqlUser)
         System.setProperty("lori.sql.password", expectedConfig.sqlPassword)
         System.setProperty("lori.connection.digitalarchive.address", expectedConfig.digitalArchiveAddress)
-        System.setProperty(
-            "lori.connection.digitalarchive.community",
-            expectedConfig.digitalArchiveCommunity.joinToString(separator = ",")
-        )
         System.setProperty("lori.connection.digitalarchive.basicauth", expectedConfig.digitalArchiveBasicAuth)
         System.setProperty("lori.connection.digitalarchive.credentials.user", expectedConfig.digitalArchiveUsername)
         System.setProperty("lori.connection.digitalarchive.credentials.password", expectedConfig.digitalArchivePassword)
@@ -39,6 +32,9 @@ class LoriConfigurationTest {
         System.setProperty("lori.jwt.issuer", expectedConfig.jwtIssuer)
         System.setProperty("lori.jwt.realm", expectedConfig.jwtRealm)
         System.setProperty("lori.jwt.secret", expectedConfig.jwtSecret)
+        System.setProperty("lori.duo.senderentityid", expectedConfig.duoSenderEntityId)
+        System.setProperty("lori.session.sign", expectedConfig.sessionSignKey)
+        System.setProperty("lori.session.encrypt", expectedConfig.sessionEncryptKey)
         val receivedConfig = LoriConfiguration.load(
             "lori",
             ChainedKonfiguration(
@@ -61,13 +57,15 @@ class LoriConfigurationTest {
                 sqlPassword = "somePW",
                 digitalArchiveAddress = "someAddress",
                 digitalArchiveBasicAuth = "1234555nase",
-                digitalArchiveCommunity = listOf("1", "2", "4"),
                 digitalArchiveUsername = "daUser",
                 digitalArchivePassword = "daPW",
                 jwtSecret = "jwtSecret",
                 jwtAudience = "jwtAudience",
                 jwtIssuer = "jwtIssuer",
                 jwtRealm = "jwtRealm",
+                duoSenderEntityId = "someId",
+                sessionSignKey = "8BADF00DDEADBEAFDEADBAADDEADBAAD",
+                sessionEncryptKey = "CAFEBABEDEADBEAFDEADBAADDEFEC8ED",
             )
     }
 }

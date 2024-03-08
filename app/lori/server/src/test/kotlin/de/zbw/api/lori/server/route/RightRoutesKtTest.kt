@@ -7,6 +7,7 @@ import com.google.gson.JsonSerializer
 import com.google.gson.reflect.TypeToken
 import de.zbw.api.lori.server.ServicePoolWithProbes
 import de.zbw.api.lori.server.config.LoriConfiguration
+import de.zbw.api.lori.server.type.SamlUtils
 import de.zbw.api.lori.server.type.toBusiness
 import de.zbw.business.lori.server.LoriServerBackend
 import de.zbw.lori.model.AccessStateRest
@@ -51,8 +52,9 @@ class RightRoutesKtTest {
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/right/$rightId")
             val content: String = response.bodyAsText()
@@ -72,8 +74,9 @@ class RightRoutesKtTest {
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/right/$testId")
             assertThat(
@@ -94,8 +97,9 @@ class RightRoutesKtTest {
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.get("/api/v1/right/$rightId")
             assertThat(
@@ -118,8 +122,9 @@ class RightRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.delete("/api/v1/right/$rightId")
             assertThat("Should return OK", response.status, `is`(HttpStatusCode.OK))
@@ -138,8 +143,9 @@ class RightRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.delete("/api/v1/right/$rightId")
             assertThat("Should return Conflict", response.status, `is`(HttpStatusCode.Conflict))
@@ -158,8 +164,9 @@ class RightRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.delete("/api/v1/right/$rightId")
             assertThat(
@@ -178,8 +185,9 @@ class RightRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.post("/api/v1/right") {
                 header(HttpHeaders.Accept, ContentType.Application.Json)
@@ -197,8 +205,9 @@ class RightRoutesKtTest {
         }
         val servicePool = getServicePool(backend)
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.post("/api/v1/right") {
                 header(HttpHeaders.Accept, ContentType.Text.Plain.contentType)
@@ -219,8 +228,9 @@ class RightRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.post("/api/v1/right") {
                 header(HttpHeaders.Accept, ContentType.Text.Plain.contentType)
@@ -244,8 +254,9 @@ class RightRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.put("/api/v1/right") {
                 header(HttpHeaders.Accept, ContentType.Text.Plain.contentType)
@@ -265,8 +276,9 @@ class RightRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.put("/api/v1/right") {
                 header(HttpHeaders.Accept, ContentType.Text.Plain.contentType)
@@ -286,8 +298,9 @@ class RightRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.put("/api/v1/right") {
                 header(HttpHeaders.Accept, ContentType.Text.Plain.contentType)
@@ -306,8 +319,9 @@ class RightRoutesKtTest {
         val servicePool = getServicePool(backend)
 
         testApplication {
+            moduleAuthForTests()
             application(
-                servicePool.application()
+                servicePool.testApplication()
             )
             val response = client.put("/api/v1/right") {
                 header(HttpHeaders.Accept, ContentType.Text.Plain.contentType)
@@ -332,7 +346,6 @@ class RightRoutesKtTest {
             sqlPassword = "postgres",
             sqlUrl = "jdbc:someurl",
             digitalArchiveAddress = "https://archiveaddress",
-            digitalArchiveCommunity = listOf("5678"),
             digitalArchiveUsername = "testuser",
             digitalArchivePassword = "password",
             digitalArchiveBasicAuth = "basicauth",
@@ -340,6 +353,9 @@ class RightRoutesKtTest {
             jwtIssuer = "0.0.0.0:8080",
             jwtRealm = "Lori ui",
             jwtSecret = "foobar",
+            duoSenderEntityId = "someId",
+            sessionSignKey = "8BADF00DDEADBEAFDEADBAADDEADBAAD",
+            sessionEncryptKey = "CAFEBABEDEADBEAFDEADBAADDEFEC8ED",
         )
 
         val TEST_RIGHT = RightRest(
@@ -410,9 +426,12 @@ class RightRoutesKtTest {
             .create()
 
         fun jsonAsString(any: Any): String = GSON.toJson(any)
-        private val tracer: Tracer = OpenTelemetry.noop().getTracer("de.zbw.api.lori.server.DatabaseConnectorTest")
+        val tracer: Tracer = OpenTelemetry.noop().getTracer("de.zbw.api.lori.server.DatabaseConnectorTest")
 
-        fun getServicePool(backend: LoriServerBackend) = ServicePoolWithProbes(
+        fun getServicePool(
+            backend: LoriServerBackend,
+            samlUtils: SamlUtils = mockk(),
+        ) = ServicePoolWithProbes(
             services = listOf(
                 mockk {
                     every { isReady() } returns true
@@ -422,6 +441,7 @@ class RightRoutesKtTest {
             config = CONFIG,
             backend = backend,
             tracer = tracer,
+            samlUtils = samlUtils,
         )
     }
 }

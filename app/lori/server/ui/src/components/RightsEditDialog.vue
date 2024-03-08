@@ -3,11 +3,13 @@ import api from "@/api/api";
 import RightsDeleteDialog from "@/components/RightsDeleteDialog.vue";
 import {
   AccessStateRest,
+  BookmarkRest,
   GroupRest,
   ItemEntry,
   RightRest,
   RightRestBasisAccessStateEnum,
   RightRestBasisStorageEnum,
+  TemplateIdCreated,
 } from "@/generated-sources/openapi";
 import {
   computed,
@@ -24,75 +26,134 @@ import { useVuelidate } from "@vuelidate/core";
 import { required } from "@vuelidate/validators";
 import { ChangeType, useHistoryStore } from "@/stores/history";
 import error from "@/utils/error";
+import templateApi from "@/api/templateApi";
+import TemplateBookmark from "@/components/TemplateBookmark.vue";
+import isEqual from "lodash.isequal";
+import { uniqWith } from "lodash";
+import date_utils from "@/utils/date_utils";
 
 export default defineComponent({
   props: {
     right: {
-      type: {} as PropType<RightRest>,
-      required: true,
+      type: Object as PropType<RightRest>,
+      required: false, // Is not required because this component is used for creating new rights as well
     },
     index: {
       type: Number,
       required: true,
     },
-    isNew: {
+    isNewRight: {
+      type: Boolean,
+      required: true,
+    },
+    isNewTemplate: {
       type: Boolean,
       required: true,
     },
     metadataId: {
       type: String,
-      required: true,
+      required: false,
+    },
+    reinitCounter: {
+      type: Number,
+      required: false,
+    },
+    initialBookmark: {
+      type: Object as PropType<BookmarkRest>,
+      required: false,
     },
   },
   // Emits
   emits: [
     "addSuccessful",
+    "addTemplateSuccessful",
+    "deleteTemplateSuccessful",
+    "updateTemplateSuccessful",
     "deleteSuccessful",
-    "editDialogClosed",
+    "editRightClosed",
     "updateSuccessful",
   ],
 
   // Components
   components: {
+    TemplateBookmark,
     RightsDeleteDialog,
   },
 
   setup(props, { emit }) {
     // Stores
     const historyStore = useHistoryStore();
-    // Vuelidate
+    /**
+     * Vuelidate.
+     */
     type FormState = {
       accessState: string;
-      startDate: string;
-      endDate: string;
+      startDate: Date | undefined;
+      endDate: Date | undefined;
+      formTemplateName: string;
     };
 
     const formState = reactive({
       accessState: "",
       basisStorage: "",
       basisAccessState: "",
-      startDate: "",
-      endDate: "",
+      startDate: {} as Date | undefined,
+      endDate: {} as Date | undefined,
+      formTemplateName: "",
     });
 
-    const endDateCheck = (value: string, siblings: FormState) => {
-      if (value == "") {
+    const isStartDateMenuOpen = ref(false);
+    const isEndDateMenuOpen = ref(false);
+
+    const startDateFormatted = computed(() => {
+      if (
+        date_utils.isEmptyObject(formState.startDate) ||
+        formState.startDate == undefined
+      ) {
+        return "";
+      } else {
+        return date_utils.dateToIso8601(formState.startDate);
+      }
+    });
+
+    const endDateFormatted = computed(() => {
+      if (
+        date_utils.isEmptyObject(formState.endDate) ||
+        formState.endDate == undefined
+      ) {
+        return "";
+      } else {
+        return date_utils.dateToIso8601(formState.endDate);
+      }
+    });
+
+    watch(startDateFormatted, () => {
+      isStartDateMenuOpen.value = false;
+    });
+
+    watch(endDateFormatted, () => {
+      isEndDateMenuOpen.value = false;
+    });
+
+    const endDateCheck = (value: Date | undefined, siblings: FormState) => {
+      if (value == undefined || siblings.startDate == undefined) {
         return true;
       } else {
-        const endDate = new Date(value);
-        const startDate = new Date(siblings.startDate);
-        return startDate < endDate;
+        return siblings.startDate < value;
       }
     };
-
     const rules = {
       accessState: { required },
       startDate: { required },
       endDate: { endDateCheck },
+      formTemplateName: { required },
     };
 
     const v$ = useVuelidate(rules, formState);
 
+    /**
+     * Vuelidate Errors:
+     */
     const errorAccessState = computed(() => {
       const errors: Array<string> = [];
       if (
@@ -117,8 +178,21 @@ export default defineComponent({
       }
       return errors;
     });
+    const errorTemplateName = computed(() => {
+      const errors: Array<string> = [];
+      if (
+        v$.value.formTemplateName.$invalid &&
+        v$.value.formTemplateName.$dirty
+      ) {
+        errors.push("Es wird ein Template-Name benötigt.");
+      }
+      return errors;
+    });
 
-    const openPanelsDefault = [0];
+    /**
+     * Constants:
+     */
+    const openPanelsDefault: Ref<Array<string>> = ref(["0"]);
     const accessStatusSelect = ["Open", "Closed", "Restricted"];
     const basisAccessState = ref([
       "Lizenzvertrag",
@@ -135,27 +209,33 @@ export default defineComponent({
       "ZBW-Policy (Eingeschränkte OCL)",
       "ZBW-Policy (unbeantwortete Rechteanforderung)",
     ]);
-    const deleteDialogActivated = ref(false);
+    const dialogDeleteRight = ref(false);
+    const dialogDeleteTemplate = ref(false);
     const menuEndDate = ref(false);
     const menuStartDate = ref(false);
     const saveAlertError = ref(false);
-    const saveAlertErrorMessage = ref("");
+    const saveAlertErrorMsg = ref("");
     const updateConfirmDialog = ref(false);
     const updateInProgress = ref(false);
+    const updateSuccessful = ref(false);
+    const updateSuccessfulMsg = ref("");
     const metadataCount = ref(0);
     const tmpRight = ref({} as RightRest);
 
     const emitClosedDialog = () => {
-      emit("editDialogClosed");
+      emit("editRightClosed");
     };
 
     const close = () => {
-      groupAlertError.value = false;
-      groupAlertErrorMessage.value = "";
+      generalAlertError.value = false;
+      generalAlertErrorMsg.value = "";
       saveAlertError.value = false;
-      saveAlertErrorMessage.value = "";
+      saveAlertErrorMsg.value = "";
       updateConfirmDialog.value = false;
       updateInProgress.value = false;
+      updateSuccessful.value = false;
+      updateSuccessfulMsg.value = "";
+      formState.formTemplateName = "";
       v$.value.$reset();
       emitClosedDialog();
     };
@@ -169,28 +249,52 @@ export default defineComponent({
       updateConfirmDialog.value = false;
     };
 
+    /**
+     * Deletion:
+     */
     const deleteSuccessful = (index: number) => {
-      emit("deleteSuccessful", index, props.right.rightId);
+      if (isTemplate.value) {
+        emit("deleteTemplateSuccessful", formState.formTemplateName);
+      } else {
+        if (props.right != undefined) {
+          emit("deleteSuccessful", index, props.right.rightId);
+        }
+      }
     };
 
     const deleteDialogClosed = () => {
-      deleteDialogActivated.value = false;
+      if (isTemplate.value) {
+        dialogDeleteTemplate.value = false;
+        close();
+      } else {
+        dialogDeleteRight.value = false;
+      }
     };
 
+    const initiateDeleteDialog = () => {
+      if (isTemplate.value) {
+        dialogDeleteTemplate.value = true;
+      } else {
+        dialogDeleteRight.value = true;
+      }
+    };
+
+    /**
+     * Create/Update Right/Template:
+     */
     const createRight = () => {
-      updateInProgress.value = true;
       tmpRight.value.rightId = "unset";
-      tmpRight.value.startDate = new Date(formState.startDate);
-      tmpRight.value.endDate =
-        formState.endDate == "" ? undefined : new Date(formState.endDate);
       api
         .addRight(tmpRight.value)
         .then((r) => {
           api
-            .addItemEntry({
-              metadataId: props.metadataId,
-              rightId: r.rightId,
-            } as ItemEntry)
+            .addItemEntry(
+              {
+                metadataId: props.metadataId,
+                rightId: r.rightId,
+              } as ItemEntry,
+              true,
+            )
             .then(() => {
               tmpRight.value.rightId = r.rightId;
               historyStore.addEntry({
@@ -203,7 +307,7 @@ export default defineComponent({
             .catch((e) => {
               error.errorHandling(e, (errMsg: string) => {
                 saveAlertError.value = true;
-                saveAlertErrorMessage.value = errMsg;
+                saveAlertErrorMsg.value = errMsg;
                 updateConfirmDialog.value = false;
               });
             });
@@ -211,17 +315,13 @@ export default defineComponent({
         .catch((e) => {
           error.errorHandling(e, (errMsg: string) => {
             saveAlertError.value = true;
-            saveAlertErrorMessage.value = errMsg;
+            saveAlertErrorMsg.value = errMsg;
             updateConfirmDialog.value = false;
           });
         });
     };
 
     const updateRight = () => {
-      updateInProgress.value = true;
-      tmpRight.value.startDate = new Date(formState.startDate);
-      tmpRight.value.endDate =
-        formState.endDate == "" ? undefined : new Date(formState.endDate);
       api
         .updateRight(tmpRight.value)
         .then(() => {
@@ -230,38 +330,120 @@ export default defineComponent({
             rightId: tmpRight.value.rightId,
           });
           emit("updateSuccessful", tmpRight.value, props.index);
+          updateSuccessfulMsg.value =
+            "Rechteinformation " +
+            tmpRight.value.rightId +
+            " erfolgreich geupdated";
+          updateSuccessful.value = true;
         })
         .catch((e) => {
           error.errorHandling(e, (errMsg: string) => {
             saveAlertError.value = true;
-            saveAlertErrorMessage.value = errMsg;
+            saveAlertErrorMsg.value = errMsg;
             updateConfirmDialog.value = false;
           });
         });
     };
 
-    const save: () => Promise<void> = () => {
-      return v$.value.$validate().then((isValid) => {
-        if (!isValid) {
-          return;
-        }
-        tmpRight.value.accessState = stringToAccessState(formState.accessState);
-        tmpRight.value.basisStorage = stringToBasisStorage(
-          formState.basisStorage
-        );
-        tmpRight.value.basisAccessState = stringToBasisAccessState(
-          formState.basisAccessState
-        );
-        if (props.isNew) {
-          createRight();
-        } else {
-          updateRight();
-        }
-      });
+    const createTemplate = () => {
+      tmpRight.value.rightId = "unset";
+      tmpRight.value.templateId = -1;
+      tmpRight.value.templateName = formState.formTemplateName;
+      templateApi
+        .addTemplate(tmpRight.value)
+        .then((r: TemplateIdCreated) => {
+          updateBookmarks(r.templateId, () => {
+            emit("addTemplateSuccessful", formState.formTemplateName);
+            close();
+          });
+        })
+        .catch((e) => {
+          error.errorHandling(e, (errMsg: string) => {
+            generalAlertErrorMsg.value = errMsg;
+            generalAlertError.value = true;
+          });
+        });
     };
 
-    const initiateDeleteDialog = () => {
-      deleteDialogActivated.value = true;
+    const updateTemplate = () => {
+      tmpRight.value.templateName = formState.formTemplateName;
+      templateApi
+        .updateTemplate(tmpRight.value)
+        .then(() => {
+          if (tmpRight.value.templateId == undefined) {
+            return;
+          }
+          updateBookmarks(tmpRight.value.templateId, () => {
+            updateSuccessfulMsg.value =
+              "Template " +
+              tmpRight.value.templateId +
+              " erfolgreich geupdated";
+            updateSuccessful.value = true;
+            emit("updateTemplateSuccessful", formState.formTemplateName);
+          });
+        })
+        .catch((e) => {
+          error.errorHandling(e, (errMsg: string) => {
+            generalAlertErrorMsg.value = errMsg;
+            generalAlertError.value = true;
+          });
+        });
+    };
+
+    /**
+     * Delete and Create Bookmarks compared to last save:
+     */
+    const updateBookmarks = (templateId: number, callback: () => void) => {
+      templateApi
+        .addBookmarksByTemplateId(
+          templateId,
+          bookmarkItems.value
+            .map((elem) => elem.bookmarkId)
+            .filter((elem): elem is number => !!elem),
+          true,
+        )
+        .then(() => {
+          callback();
+        })
+        .catch((e) => {
+          error.errorHandling(e, (errMsg: string) => {
+            generalAlertErrorMsg.value = errMsg;
+            generalAlertError.value = true;
+          });
+        });
+    };
+
+    const save: () => Promise<void> = async () => {
+      // Vuelidate expects this field to be filled. When editing rights it is not required.
+      if (!isTemplate.value) {
+        formState.formTemplateName = "foo";
+      }
+      const isValid = await v$.value.$validate();
+      if (!isValid) {
+        return;
+      }
+      tmpRight.value.accessState = stringToAccessState(formState.accessState);
+      tmpRight.value.basisStorage = stringToBasisStorage(
+        formState.basisStorage,
+      );
+      tmpRight.value.basisAccessState = stringToBasisAccessState(
+        formState.basisAccessState,
+      );
+      updateInProgress.value = true;
+      if (formState.startDate == undefined) {
+        return;
+      }
+      tmpRight.value.startDate = formState.startDate;
+      tmpRight.value.endDate = formState.endDate;
+      if (props.isNewTemplate) {
+        createTemplate();
+      } else if (isTemplate.value) {
+        updateTemplate();
+      } else if (props.isNewRight) {
+        createRight();
+      } else {
+        updateRight();
+      }
     };
 
     const accessStateToString = (access: AccessStateRest | undefined) => {
@@ -295,7 +477,7 @@ export default defineComponent({
     };
 
     const basisStorageToString = (
-      basisStorage: RightRestBasisStorageEnum | undefined
+      basisStorage: RightRestBasisStorageEnum | undefined,
     ) => {
       if (basisStorage == undefined) {
         return "Kein Wert";
@@ -339,7 +521,7 @@ export default defineComponent({
     };
 
     const basisAccessStateToString = (
-      basisAccessState: RightRestBasisAccessStateEnum | undefined
+      basisAccessState: RightRestBasisAccessStateEnum | undefined,
     ) => {
       if (basisAccessState == undefined) {
         return "Kein Wert";
@@ -379,38 +561,173 @@ export default defineComponent({
     };
 
     // Computed properties
-    onMounted(() => reinitializeRight(props.right));
+    onMounted(() => {
+      reinitializeRight();
+      if (!isNew.value) {
+        loadBookmarks();
+      }
+    });
+    const computedMetadataId = computed(() =>
+      props.metadataId != undefined ? props.metadataId : "",
+    );
     const computedRight = computed(() => props.right);
+    const computedReinitCounter = computed(() => props.reinitCounter);
+    const computedRightId = computed(() => {
+      // The check for undefined is required here!
+      if (props.right == undefined || props.right.rightId == undefined) {
+        return "";
+      } else {
+        return props.right.rightId;
+      }
+    });
+    const computedTemplateId = computed(() =>
+      props.right == undefined || props.right.templateId == undefined
+        ? -1
+        : props.right.templateId,
+    );
 
-    watch(computedRight, (currentValue, oldValue) => {
-      reinitializeRight(currentValue);
+    const isNew = computed(() => props.isNewRight || props.isNewTemplate);
+    const isEditable = computed(
+      () =>
+        isNew.value ||
+        (props.right != undefined && props.right.lastAppliedOn == undefined),
+    );
+    const isTemplate = computed(
+      () =>
+        props.isNewTemplate ||
+        (props.right != undefined && props.right.templateId != undefined),
+    );
+
+    watch(computedRight, () => {
+      reinitializeRight();
+    });
+    watch(computedReinitCounter, () => {
+      updateInProgress.value = false;
+      if (isNew.value) {
+        resetAllValues();
+        addInitialBookmark();
+      } else {
+        setGivenValues();
+        loadBookmarks();
+      }
     });
 
-    const reinitializeRight = (newValue: RightRest) => {
-      updateInProgress.value = false;
-      tmpRight.value = Object.assign({}, newValue);
-      getGroupList();
-      if (!props.isNew) {
-        formState.accessState = accessStateToString(newValue.accessState);
-        formState.basisStorage = basisStorageToString(newValue.basisStorage);
-        formState.basisAccessState = basisAccessStateToString(
-          newValue.basisAccessState
-        );
-        formState.startDate = newValue.startDate.toISOString().slice(0, 10);
-        if (newValue.endDate !== undefined) {
-          formState.endDate = newValue.endDate.toISOString().slice(0, 10);
-        } else {
-          formState.endDate = "";
-        }
-      } else {
-        formState.endDate = "";
-        formState.startDate = "";
+    const addInitialBookmark = () => {
+      if (props.initialBookmark != undefined) {
+        bookmarkItems.value = Array(props.initialBookmark);
       }
     };
 
+    const setGivenValues = () => {
+      if (props.right == undefined) {
+        // This should never happen :'(
+        return;
+      }
+      tmpRight.value = Object.assign({}, props.right);
+      formState.formTemplateName =
+        props.right.templateName == undefined ? "" : props.right.templateName;
+      formState.accessState = accessStateToString(props.right.accessState);
+      formState.basisStorage = basisStorageToString(props.right.basisStorage);
+      formState.basisAccessState = basisAccessStateToString(
+        props.right.basisAccessState,
+      );
+      formState.startDate = props.right.startDate;
+      if (props.right.endDate !== undefined) {
+        formState.endDate = props.right.endDate;
+      } else {
+        formState.endDate = undefined;
+      }
+    };
+
+    const resetAllValues = () => {
+      tmpRight.value = Object.assign({} as RightRest);
+      formState.endDate = undefined;
+      formState.startDate = undefined;
+      formState.formTemplateName = "";
+      formState.accessState = "";
+      bookmarkItems.value = [];
+    };
+
+    const reinitializeRight = () => {
+      updateInProgress.value = false;
+      getGroupList();
+      if (!isNew.value) {
+        setGivenValues();
+      } else {
+        resetAllValues();
+        addInitialBookmark();
+      }
+    };
+
+    /**
+     * Bookmarks related to given Template.
+     */
+    const bookmarkDialogOn = ref(false);
+    const openBookmarkSearch = ref(0);
+    const renderBookmarkKey = ref(0);
+    const selectBookmark = () => {
+      bookmarkDialogOn.value = true;
+      openBookmarkSearch.value += 1;
+    };
+    const templateBookmarkClosed = () => {
+      bookmarkDialogOn.value = false;
+    };
+
+    const bookmarkItems: Ref<Array<BookmarkRest>> = ref([]);
+    const bookmarkHeaders = [
+      {
+        title: "Id",
+        align: "start",
+        value: "bookmarkId",
+        sortable: true,
+      },
+      {
+        title: "Name",
+        align: "start",
+        value: "bookmarkName",
+        sortable: true,
+      },
+      {
+        title: "Beschreibung",
+        align: "start",
+        value: "description",
+        sortable: true,
+      },
+      { title: "Actions", value: "actions", sortable: false },
+    ];
+
+    // Load Bookmarks
+    const loadBookmarks = () => {
+      templateApi
+        .getBookmarksByTemplateId(computedTemplateId.value)
+        .then((bookmarks: Array<BookmarkRest>) => {
+          bookmarkItems.value = bookmarks;
+        })
+        .catch((e) => {
+          error.errorHandling(e, (errMsg: string) => {
+            generalAlertErrorMsg.value = errMsg;
+            generalAlertError.value = true;
+          });
+        });
+    };
+
+    const setSelectedBookmarks = (bookmarks: Array<BookmarkRest>) => {
+      // Unionise
+      bookmarkItems.value = bookmarkItems.value.concat(bookmarks);
+      bookmarkItems.value = uniqWith(bookmarkItems.value, isEqual).sort(
+        (a, b) => (a.bookmarkId < b.bookmarkId ? -1 : 1),
+      );
+      renderBookmarkKey.value += 1;
+    };
+
+    const deleteBookmarkEntry = (bookmark: BookmarkRest) => {
+      const editedIndex = bookmarkItems.value.indexOf(bookmark);
+      bookmarkItems.value.splice(editedIndex, 1);
+    };
+
     // Groups
-    const groupAlertError = ref(false);
-    const groupAlertErrorMessage = ref("");
+    const generalAlertError = ref(false);
+    const generalAlertErrorMsg = ref("");
     const groupItems: Ref<Array<string>> = ref([]);
     const getGroupList = () => {
       api
@@ -420,8 +737,8 @@ export default defineComponent({
         })
         .catch((e) => {
           error.errorHandling(e, (errMsg: string) => {
-            groupAlertErrorMessage.value = errMsg;
-            groupAlertError.value = true;
+            generalAlertErrorMsg.value = errMsg;
+            generalAlertError.value = true;
           });
         });
     };
@@ -432,21 +749,40 @@ export default defineComponent({
       accessStatusSelect,
       basisAccessState,
       basisStorage,
-      deleteDialogActivated,
+      bookmarkDialogOn,
+      bookmarkItems,
+      bookmarkHeaders,
+      computedMetadataId,
+      computedRightId,
+      computedTemplateId,
+      dialogDeleteRight,
+      dialogDeleteTemplate,
+      endDateFormatted,
       errorAccessState,
       errorEndDate,
+      errorTemplateName,
       errorStartDate,
-      groupAlertError,
-      groupAlertErrorMessage,
+      isEditable,
+      isNew,
+      isTemplate,
+      generalAlertError,
+      generalAlertErrorMsg,
       groupItems,
       historyStore,
+      isStartDateMenuOpen,
+      isEndDateMenuOpen,
       menuStartDate,
       menuEndDate,
       metadataCount,
       openPanelsDefault,
+      openBookmarkSearch,
+      renderBookmarkKey,
       saveAlertError,
-      saveAlertErrorMessage,
+      saveAlertErrorMsg,
+      startDateFormatted,
       updateConfirmDialog,
+      updateSuccessful,
+      updateSuccessfulMsg,
       tmpRight,
       updateInProgress,
       // methods
@@ -454,10 +790,14 @@ export default defineComponent({
       cancelConfirm,
       createRight,
       initiateDeleteDialog,
+      deleteBookmarkEntry,
       deleteDialogClosed,
       deleteSuccessful,
-      updateRight,
+      selectBookmark,
+      setSelectedBookmarks,
       save,
+      templateBookmarkClosed,
+      updateRight,
     };
   },
 });
@@ -466,443 +806,524 @@ export default defineComponent({
 <style scoped></style>
 
 <template>
-  <v-card>
+  <v-card class="overflow-y-auto" max-height="1000">
     <v-card-actions>
+      <v-alert v-model="updateSuccessful" closable type="success">
+        {{ updateSuccessfulMsg }}
+      </v-alert>
+      <v-alert v-model="saveAlertError" closable type="error">
+        Speichern war nicht erfolgreich: {{ saveAlertErrorMsg }}
+      </v-alert>
+      <v-alert v-model="generalAlertError" closable type="error">
+        {{ generalAlertErrorMsg }}
+      </v-alert>
       <v-spacer></v-spacer>
-      <v-btn
-        color="blue darken-1"
-        text
-        @click="save"
-        :disabled="updateInProgress"
+      <v-btn :disabled="updateInProgress" color="blue darken-1" @click="save"
         >Speichern
       </v-btn>
-      <v-btn color="blue darken-1" text @click="cancel">Zurück</v-btn>
-      <v-btn icon @click="initiateDeleteDialog">
+      <v-btn color="blue darken-1" @click="cancel">Zurück</v-btn>
+      <v-btn :disabled="isNew" @click="initiateDeleteDialog">
         <v-icon>mdi-delete</v-icon>
       </v-btn>
-
       <v-dialog
-        v-model="deleteDialogActivated"
-        max-width="500px"
+        v-model="dialogDeleteRight"
         :retain-focus="false"
+        max-width="500px"
       >
         <RightsDeleteDialog
-          :right="right"
           :index="index"
-          :metadataId="metadataId"
-          v-on:deleteSuccessful="deleteSuccessful"
+          :is-template="isTemplate"
+          :metadataId="computedMetadataId"
+          :right-id="computedRightId"
           v-on:deleteDialogClosed="deleteDialogClosed"
+          v-on:deleteSuccessful="deleteSuccessful"
+        ></RightsDeleteDialog>
+      </v-dialog>
+
+      <v-dialog
+        v-model="dialogDeleteTemplate"
+        :retain-focus="false"
+        max-width="500pxi"
+      >
+        <RightsDeleteDialog
+          :index="index"
+          :is-template="isTemplate"
+          :metadataId="computedMetadataId"
+          :right-id="computedTemplateId.toString()"
+          v-on:deleteDialogClosed="deleteDialogClosed"
+          v-on:templateDeleteSuccessful="deleteSuccessful"
         ></RightsDeleteDialog>
       </v-dialog>
     </v-card-actions>
-    <v-expansion-panels focusable multiple v-model="openPanelsDefault">
+
+    <v-expansion-panels v-model="openPanelsDefault" focusable multiple>
+      <template v-if="isTemplate">
+        <v-expansion-panel value="0">
+          <v-expansion-panel-title>
+            Template Informationen
+          </v-expansion-panel-title>
+          <v-expansion-panel-text>
+            <v-container fluid>
+              <v-row>
+                <v-col cols="4"> Template-Id </v-col>
+                <v-col cols="8">
+                  <v-text-field
+                    v-if="isNew"
+                    ref="templateId"
+                    :disabled="isNew"
+                    hint="Template Id"
+                    label="Wird automatisch generiert"
+                    variant="outlined"
+                  ></v-text-field>
+                  <v-text-field
+                    v-if="!isNew"
+                    ref="templateId"
+                    v-model="computedTemplateId"
+                    disabled
+                    hint="Template Id"
+                    variant="outlined"
+                  ></v-text-field>
+                </v-col>
+              </v-row>
+              <v-row>
+                <v-col cols="4"> Template Name </v-col>
+                <v-col cols="8">
+                  <v-text-field
+                    v-model="formState.formTemplateName"
+                    :error-messages="errorTemplateName"
+                    :disabled="!isEditable"
+                    hint="Name des Templates"
+                    variant="outlined"
+                  ></v-text-field>
+                </v-col>
+              </v-row>
+              <v-row>
+                <v-col cols="4"> Beschreibung </v-col>
+                <v-col cols="8">
+                  <v-text-field
+                    v-model="tmpRight.templateDescription"
+                    hint="Beschreibung des Templates"
+                    variant="outlined"
+                    :disabled="!isEditable"
+                  ></v-text-field>
+                </v-col>
+              </v-row>
+              <v-row>
+                <v-col cols="4"> Erstellt am </v-col>
+                <v-col cols="8">
+                  <v-text-field
+                    v-model="tmpRight.createdOn"
+                    variant="outlined"
+                    readonly
+                    hint="Erstellungsdatum des Templates"
+                  ></v-text-field>
+                </v-col>
+              </v-row>
+              <v-row>
+                <v-col cols="4"> Zuletzt editiert am </v-col>
+                <v-col cols="8">
+                  <v-text-field
+                    v-model="tmpRight.lastUpdatedOn"
+                    variant="outlined"
+                    readonly
+                  ></v-text-field>
+                </v-col>
+              </v-row>
+              <v-row>
+                <v-col cols="4"> Zuletzt editiert von </v-col>
+                <v-col cols="8">
+                  <v-text-field
+                    v-model="tmpRight.lastUpdatedBy"
+                    variant="outlined"
+                    readonly
+                  ></v-text-field>
+                </v-col>
+              </v-row>
+              <v-row>
+                <v-col cols="4"> Zuletzt angewendet am </v-col>
+                <v-col cols="8">
+                  <v-text-field
+                    v-model="tmpRight.lastAppliedOn"
+                    variant="outlined"
+                    readonly
+                    hint="Datum, wann das letzte Mal das Template angewendet wurde bzw. der automatische Job"
+                  ></v-text-field>
+                </v-col>
+              </v-row>
+              <v-row>
+                <v-col cols="4"> Verknüpfte Suchen </v-col>
+                <v-col cols="8">
+                  <v-data-table
+                    :key="renderBookmarkKey"
+                    :headers="bookmarkHeaders"
+                    :items="bookmarkItems"
+                    item-value="bookmarkId"
+                    loading-text="Daten werden geladen... Bitte warten."
+                  >
+                    <template v-slot:item.actions="{ item }">
+                      <v-icon
+                        small
+                        @click="deleteBookmarkEntry(item)"
+                        :disabled="!isEditable"
+                      >
+                        mdi-delete
+                      </v-icon>
+                    </template>
+                  </v-data-table>
+                  <v-btn
+                    color="blue darken-1"
+                    @click="selectBookmark"
+                    :disabled="!isEditable"
+                    >Suche Bookmark</v-btn
+                  >
+                  <v-dialog
+                    v-model="bookmarkDialogOn"
+                    :retain-focus="false"
+                    max-width="500px"
+                  >
+                    <TemplateBookmark
+                      :reinit-counter="openBookmarkSearch"
+                      v-on:bookmarksSelected="setSelectedBookmarks"
+                      v-on:templateBookmarkClosed="templateBookmarkClosed"
+                    ></TemplateBookmark>
+                  </v-dialog>
+                </v-col>
+              </v-row>
+            </v-container>
+          </v-expansion-panel-text>
+        </v-expansion-panel>
+      </template>
       <v-expansion-panel>
-        <v-expansion-panel-header
+        <v-expansion-panel-title
           >Steuerungsrelevante Elemente
-        </v-expansion-panel-header>
-        <v-expansion-panel-content eager>
+        </v-expansion-panel-title>
+        <v-expansion-panel-text eager>
           <v-container fluid>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Right-Id</v-subheader>
-              </v-col>
+              <v-col cols="4"> Right-Id </v-col>
               <v-col cols="8">
                 <v-text-field
                   v-if="isNew"
                   ref="rightId"
-                  label="Wird automatisch generiert"
                   disabled
-                  outlined
                   hint="Rechte Id"
+                  label="Wird automatisch generiert"
+                  variant="outlined"
                 ></v-text-field>
                 <v-text-field
                   v-if="!isNew"
                   ref="rightId"
                   v-model="tmpRight.rightId"
-                  outlined
-                  hint="Rechte Id"
                   disabled
+                  hint="Rechte Id"
+                  variant="outlined"
                 ></v-text-field>
               </v-col>
             </v-row>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Aktueller Access-Status</v-subheader>
-              </v-col>
+              <v-col cols="4"> Aktueller Access-Status </v-col>
               <v-col cols="8">
                 <v-select
-                  :items="accessStatusSelect"
                   v-model="formState.accessState"
-                  outlined
+                  :disabled="!isEditable"
+                  :error-messages="errorAccessState"
+                  :items="accessStatusSelect"
+                  variant="outlined"
                   @blur="v$.accessState.$touch()"
                   @change="v$.accessState.$touch()"
-                  :error-messages="errorAccessState"
                 ></v-select>
               </v-col>
             </v-row>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Gültigkeit Startdatum</v-subheader>
-              </v-col>
+              <v-col cols="4"> Gültigkeit Startdatum </v-col>
               <v-col cols="8">
                 <v-menu
-                  ref="menuStart"
-                  v-model="menuStartDate"
                   :close-on-content-click="false"
-                  :return-value.sync="formState.startDate"
-                  transition="scale-transition"
-                  offset-y
-                  min-width="auto"
+                  :location="'bottom'"
+                  v-model="isStartDateMenuOpen"
                 >
-                  <template v-slot:activator="{ on, attrs }">
+                  <template v-slot:activator="{ props }">
                     <v-text-field
-                      v-model="formState.startDate"
-                      ref="startDate"
-                      label="Start-Datum"
-                      prepend-icon="mdi-calendar"
-                      readonly
-                      outlined
-                      v-bind="attrs"
-                      v-on="on"
-                      required
-                      @change="v$.startDate.$touch()"
-                      @blur="v$.startDate.$touch()"
+                      :modelValue="startDateFormatted"
                       :error-messages="errorStartDate"
-                    ></v-text-field>
-                  </template>
-                  <v-date-picker
-                    v-model="formState.startDate"
-                    no-title
-                    scrollable
-                  >
-                    <v-spacer></v-spacer>
-                    <v-btn text color="primary" @click="menuStartDate = false">
-                      Cancel
-                    </v-btn>
-                    <v-btn
-                      text
-                      color="primary"
-                      @click="$refs.menuStart.save(formState.startDate)"
-                    >
-                      OK
-                    </v-btn>
-                  </v-date-picker>
-                </v-menu>
-              </v-col>
-            </v-row>
-            <v-row>
-              <v-col cols="4">
-                <v-subheader>Gültigkeit Enddatum</v-subheader>
-              </v-col>
-              <v-col cols="8">
-                <v-menu
-                  ref="menuEnd"
-                  v-model="menuEndDate"
-                  :close-on-content-click="false"
-                  :return-value.sync="formState.endDate"
-                  transition="scale-transition"
-                  offset-y
-                  min-width="auto"
-                >
-                  <template v-slot:activator="{ on, attrs }">
-                    <v-text-field
-                      v-model="formState.endDate"
-                      ref="endDate"
-                      label="End-Datum"
+                      label="Start-Datum"
+                      variant="outlined"
                       prepend-icon="mdi-calendar"
                       readonly
-                      outlined
-                      v-bind="attrs"
-                      v-on="on"
                       required
-                      @change="v$.endDate.$touch()"
-                      @blur="v$.endDate.$touch()"
-                      :error-messages="errorEndDate"
+                      v-bind="props"
+                      @blur="v$.startDate.$touch()"
+                      @change="v$.startDate.$touch()"
                     ></v-text-field>
                   </template>
-                  <v-date-picker
-                    v-model="formState.endDate"
-                    no-title
-                    scrollable
-                  >
-                    <v-spacer></v-spacer>
-                    <v-btn text color="primary" @click="menuEndDate = false">
-                      Cancel
-                    </v-btn>
-                    <v-btn
-                      text
-                      color="primary"
-                      @click="$refs.menuEnd.save(formState.endDate)"
-                    >
-                      OK
-                    </v-btn>
+                  <v-date-picker v-model="formState.startDate" color="primary"
+                    ><template v-slot:header></template>
                   </v-date-picker>
                 </v-menu>
               </v-col>
             </v-row>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Gruppen</v-subheader>
+              <v-col cols="4"> Gültigkeit Enddatum </v-col>
+              <v-col cols="8">
+                <v-menu
+                  :close-on-content-click="false"
+                  :location="'bottom'"
+                  v-model="isEndDateMenuOpen"
+                >
+                  <template v-slot:activator="{ props }">
+                    <v-text-field
+                      :modelValue="endDateFormatted"
+                      :error-messages="errorEndDate"
+                      label="End-Datum"
+                      variant="outlined"
+                      prepend-icon="mdi-calendar"
+                      readonly
+                      required
+                      v-bind="props"
+                      @blur="v$.endDate.$touch()"
+                      @change="v$.endDate.$touch()"
+                    ></v-text-field>
+                  </template>
+                  <v-date-picker v-model="formState.endDate" color="primary"
+                    ><template v-slot:header></template
+                  ></v-date-picker>
+                </v-menu>
               </v-col>
+            </v-row>
+            <v-row>
+              <v-col cols="4"> Gruppen </v-col>
               <v-col cols="8">
                 <v-select
-                  :items="groupItems"
                   v-model="tmpRight.groupIds"
+                  :items="groupItems"
+                  :disabled="!isEditable"
+                  chips
+                  counter
                   hint="Einschränkung des Zugriffs auf Berechtigungsgruppen"
                   multiple
-                  outlined
-                  counter
-                  chips
+                  variant="outlined"
                 >
                 </v-select>
               </v-col>
             </v-row>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Bemerkungen</v-subheader>
-              </v-col>
+              <v-col cols="4"> Bemerkungen </v-col>
               <v-col cols="8">
                 <v-textarea
                   v-model="tmpRight.notesGeneral"
-                  hint="Allgemeine Bemerkungen"
+                  :disabled="!isEditable"
                   counter
+                  hint="Allgemeine Bemerkungen"
                   maxlength="256"
-                  outlined
+                  variant="outlined"
                 ></v-textarea>
               </v-col>
             </v-row>
           </v-container>
-        </v-expansion-panel-content>
+        </v-expansion-panel-text>
       </v-expansion-panel>
       <v-expansion-panel>
-        <v-expansion-panel-header>Formale Regelung</v-expansion-panel-header>
-        <v-expansion-panel-content eager>
+        <v-expansion-panel-title>Formale Regelung</v-expansion-panel-title>
+        <v-expansion-panel-text eager>
           <v-container fluid>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Lizenzvertrag</v-subheader>
-              </v-col>
+              <v-col cols="4"> Lizenzvertrag </v-col>
               <v-col cols="8">
                 <v-text-field
                   v-model="tmpRight.licenceContract"
-                  outlined
+                  :disabled="!isEditable"
                   hint="Gibt Auskunft darüber, ob ein Lizenzvertrag für dieses Item als Nutzungsrechtsquelle vorliegt."
+                  variant="outlined"
                 ></v-text-field>
               </v-col>
             </v-row>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Urheberrechtschrankennutzung</v-subheader>
-              </v-col>
+              <v-col cols="4"> Urheberrechtschrankennutzung </v-col>
               <v-col cols="8">
                 <v-switch
                   v-model="tmpRight.authorRightException"
+                  :disabled="!isEditable"
                   color="indigo"
-                  label="Ja"
                   hint="Ist für die ZBW die Nutzung der Urheberrechtschranken möglich?"
+                  label="Ja"
                   persistent-hint
                 ></v-switch>
               </v-col>
             </v-row>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>ZBW Nutzungsvereinbarung</v-subheader>
-              </v-col>
+              <v-col cols="4"> ZBW Nutzungsvereinbarung </v-col>
               <v-col cols="8">
                 <v-switch
                   v-model="tmpRight.zbwUserAgreement"
+                  :disabled="!isEditable"
                   color="indigo"
-                  label="Ja"
                   hint="Gibt Auskunft darüber, ob eine Nutzungsvereinbarung für dieses Item als Nutzungsrechtsquelle vorliegt."
+                  label="Ja"
                   persistent-hint
                 ></v-switch>
               </v-col>
             </v-row>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Open-Content-Licence</v-subheader>
-              </v-col>
+              <v-col cols="4"> Open-Content-Licence </v-col>
               <v-col cols="8">
                 <v-text-field
-                  outlined
                   hint="Eine per URI eindeutig referenzierte Standard-Open-Content-Lizenz, die für das Item gilt."
+                  :disabled="!isEditable"
+                  variant="outlined"
                 ></v-text-field>
               </v-col>
             </v-row>
             <v-row>
               <v-col cols="4">
-                <v-subheader>
-                  Nicht-standardisierte Open-Content-Lizenz (URL)
-                </v-subheader>
+                Nicht-standardisierte Open-Content-Lizenz (URL)
               </v-col>
               <v-col cols="8">
                 <v-text-field
                   v-model="tmpRight.nonStandardOpenContentLicenceURL"
-                  outlined
+                  :disabled="!isEditable"
                   hint="Eine per URL eindeutig referenzierbare Nicht-standardisierte Open-Content-Lizenz, die für das Item gilt."
+                  variant="outlined"
                 ></v-text-field>
               </v-col>
             </v-row>
             <v-row>
               <v-col cols="4">
-                <v-subheader
-                  >Nicht-standardisierte Open-Content-Lizenz (keine URL)
-                </v-subheader>
+                Nicht-standardisierte Open-Content-Lizenz (keine URL)
               </v-col>
               <v-col cols="8">
                 <v-switch
                   v-model="tmpRight.nonStandardOpenContentLicence"
+                  :disabled="!isEditable"
                   color="indigo"
-                  label="Ja"
                   hint="Ohne URL, als Freitext (bzw. derzeit als Screenshot in Clearingstelle)"
+                  label="Ja"
                   persistent-hint
                 ></v-switch>
               </v-col>
             </v-row>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Eingeschränkte Open-Content-Lizenz</v-subheader>
-              </v-col>
+              <v-col cols="4"> Eingeschränkte Open-Content-Lizenz </v-col>
               <v-col cols="8">
                 <v-switch
                   v-model="tmpRight.restrictedOpenContentLicence"
+                  :disabled="!isEditable"
                   color="indigo"
-                  label="Ja"
                   hint="Gilt für dieses Item, dem im Element 'Open-Content-Licence' eine standardisierte Open-Content-Lizenz zugeordnet ist, eine Einschränkung?"
+                  label="Ja"
                   persistent-hint
                 ></v-switch>
               </v-col>
             </v-row>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Bemerkungen</v-subheader>
-              </v-col>
+              <v-col cols="4"> Bemerkungen </v-col>
               <v-col cols="8">
                 <v-textarea
                   v-model="tmpRight.notesFormalRules"
+                  :disabled="!isEditable"
                   counter
-                  maxlength="256"
                   hint="Bemerkungen für formale Regelungen"
-                  outlined
+                  maxlength="256"
+                  variant="outlined"
                 ></v-textarea>
               </v-col>
             </v-row>
           </v-container>
-        </v-expansion-panel-content>
+        </v-expansion-panel-text>
       </v-expansion-panel>
       <v-expansion-panel>
-        <v-expansion-panel-header
+        <v-expansion-panel-title
           >Prozessdokumentierende Elemente
-        </v-expansion-panel-header>
-        <v-expansion-panel-content eager>
+        </v-expansion-panel-title>
+        <v-expansion-panel-text eager>
           <v-container fluid>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Basis der Speicherung</v-subheader>
-              </v-col>
+              <v-col cols="4"> Basis der Speicherung </v-col>
               <v-col cols="8">
                 <v-select
-                  :items="basisStorage"
                   v-model="formState.basisStorage"
-                  outlined
+                  :disabled="!isEditable"
+                  :items="basisStorage"
+                  variant="outlined"
                 ></v-select>
               </v-col>
             </v-row>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Basis des Access-Status</v-subheader>
-              </v-col>
+              <v-col cols="4"> Basis des Access-Status </v-col>
               <v-col cols="8">
                 <v-select
-                  :items="basisAccessState"
                   v-model="formState.basisAccessState"
-                  outlined
+                  :disabled="!isEditable"
+                  :items="basisAccessState"
+                  variant="outlined"
                 ></v-select>
               </v-col>
             </v-row>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Bemerkungen</v-subheader>
-              </v-col>
+              <v-col cols="4"> Bemerkungen </v-col>
               <v-col cols="8">
                 <v-textarea
                   v-model="tmpRight.notesProcessDocumentation"
-                  hint="Bemerkungen für prozessdokumentierende Elemente"
+                  :disabled="!isEditable"
                   counter
+                  hint="Bemerkungen für prozessdokumentierende Elemente"
                   maxlength="256"
-                  outlined
+                  variant="outlined"
                 ></v-textarea>
               </v-col>
             </v-row>
           </v-container>
-        </v-expansion-panel-content>
+        </v-expansion-panel-text>
       </v-expansion-panel>
       <v-expansion-panel>
-        <v-expansion-panel-header>
+        <v-expansion-panel-title>
           Metadaten über den Rechteinformationseintrag
-        </v-expansion-panel-header>
-        <v-expansion-panel-content eager>
+        </v-expansion-panel-title>
+        <v-expansion-panel-text eager>
           <v-container fluid>
-            <v-row>
-              <v-col cols="4">
-                <v-subheader>Zuletzt editiert am</v-subheader>
-              </v-col>
+            <v-row v-if="!isTemplate">
+              <v-col cols="4"> Zuletzt editiert am </v-col>
               <v-col cols="8">
                 <v-text-field
                   v-model="tmpRight.lastUpdatedOn"
+                  variant="outlined"
                   readonly
-                  outlined
                 ></v-text-field>
               </v-col>
             </v-row>
-            <v-row>
-              <v-col cols="4">
-                <v-subheader>Zuletzt editiert von</v-subheader>
-              </v-col>
+            <v-row v-if="!isTemplate">
+              <v-col cols="4"> Zuletzt editiert von </v-col>
               <v-col cols="8">
                 <v-text-field
                   v-model="tmpRight.lastUpdatedBy"
+                  variant="outlined"
                   readonly
-                  outlined
                 ></v-text-field>
               </v-col>
             </v-row>
             <v-row>
-              <v-col cols="4">
-                <v-subheader>Bemerkungen</v-subheader>
-              </v-col>
+              <v-col cols="4"> Bemerkungen </v-col>
               <v-col cols="8">
                 <v-textarea
                   v-model="tmpRight.notesManagementRelated"
-                  hint="Bemerkungen für Metadaten über den Rechteinformationseintrag"
+                  :disabled="!isEditable"
                   counter
+                  hint="Bemerkungen für Metadaten über den Rechteinformationseintrag"
                   maxlength="256"
-                  outlined
+                  variant="outlined"
                 ></v-textarea>
               </v-col>
             </v-row>
           </v-container>
-        </v-expansion-panel-content>
+        </v-expansion-panel-text>
       </v-expansion-panel>
     </v-expansion-panels>
     <v-card-actions>
       <v-spacer></v-spacer>
-      <v-btn color="blue darken-1" text @click="cancel">Zurück</v-btn>
-      <v-btn
-        color="blue darken-1"
-        text
-        @click="save"
-        :disabled="updateInProgress"
+      <v-btn color="blue darken-1" @click="cancel">Zurück</v-btn>
+      <v-btn :disabled="updateInProgress" color="blue darken-1" @click="save"
         >Speichern
       </v-btn>
     </v-card-actions>
-    <v-alert v-model="saveAlertError" dismissible text type="error">
-      Speichern war nicht erfolgreich:
-      {{ saveAlertErrorMessage }}
-    </v-alert>
-    <v-alert v-model="groupAlertError" dismissible text type="error">
-      {{ groupAlertErrorMessage }}
-    </v-alert>
     <v-dialog v-model="updateConfirmDialog" max-width="500px">
       <v-card>
         <v-card-title class="text-h5"> Achtung</v-card-title>

@@ -1,12 +1,5 @@
 <script lang="ts">
-import {
-  computed,
-  defineComponent,
-  onMounted,
-  reactive,
-  ref,
-  watch,
-} from "vue";
+import { computed, defineComponent, reactive, ref } from "vue";
 import { useDialogsStore } from "@/stores/dialogs";
 import bookmarkApi from "@/api/bookmarkApi";
 import { useSearchStore } from "@/stores/search";
@@ -18,7 +11,14 @@ import { useVuelidate } from "@vuelidate/core";
 export default defineComponent({
   emits: ["addBookmarkSuccessful"],
   setup(props, { emit }) {
-    // Vuelidate
+    /**
+     * Constants:
+     */
+    const updateInProgress = ref(false);
+    const description = ref("");
+    /**
+     * Vuelidate:
+     */
     const rules = {
       name: { required },
     };
@@ -26,6 +26,10 @@ export default defineComponent({
       name: "",
     });
     const v$ = useVuelidate(rules, formState);
+
+    /**
+     * Error handling:
+     */
     const errorName = computed(() => {
       const errors: Array<string> = [];
       if (v$.value.name.$invalid && v$.value.name.$dirty) {
@@ -34,11 +38,12 @@ export default defineComponent({
       return errors;
     });
 
-    const updateInProgress = ref(false);
-    const description = ref("");
     const saveAlertError = ref(false);
     const saveAlertErrorMessage = ref("");
 
+    /**
+     * Stores:
+     */
     const dialogStore = useDialogsStore();
     const searchStore = useSearchStore();
     const close = () => {
@@ -69,7 +74,7 @@ export default defineComponent({
             searchquerybuilder.buildValidOnFilter(searchStore),
             searchquerybuilder.buildPaketSigelIdFilter(searchStore),
             searchquerybuilder.buildZDBIdFilter(searchStore),
-            searchquerybuilder.buildNoRightInformation(searchStore)
+            searchquerybuilder.buildNoRightInformation(searchStore),
           )
           .then((r) => {
             emit("addBookmarkSuccessful", r.bookmarkId);
@@ -108,52 +113,47 @@ export default defineComponent({
       <v-card-title>Suche Speichern</v-card-title>
       <v-row>
         <v-col cols="4">
-          <v-subheader>Name</v-subheader>
+          <div class="text-h6 mb-1">Name</div>
+          /
         </v-col>
         <v-col cols="8">
           <v-text-field
             v-model="formState.name"
+            :error-messages="errorName"
             hint="Name des Bookmarks"
             maxlength="256"
-            outlined
-            :error-messages="errorName"
+            variant="outlined"
           ></v-text-field>
         </v-col>
       </v-row>
       <v-row>
-        <v-col cols="4">
-          <v-subheader>Bookmark-Id</v-subheader>
-        </v-col>
+        <v-col cols="4"> Bookmark-Id </v-col>
         <v-col cols="8">
           <v-text-field
-            label="Wird automatisch generiert"
             disabled
-            outlined
+            label="Wird automatisch generiert"
+            variant="outlined"
           ></v-text-field>
         </v-col>
       </v-row>
       <v-row>
-        <v-col cols="4">
-          <v-subheader>Beschreibung</v-subheader>
-        </v-col>
+        <v-col cols="4"> Beschreibung </v-col>
         <v-col cols="8">
           <v-text-field v-model="description" outlined></v-text-field>
         </v-col>
       </v-row>
       <v-card-actions>
         <v-spacer></v-spacer>
-        <v-btn color="blue darken-1" text @click="close">Zurück</v-btn>
+        <v-btn color="blue darken-1" text="Zurück" @click="close"></v-btn>
         <v-btn
-          color="blue darken-1"
-          text
-          @click="save"
           :disabled="updateInProgress"
-          >Speichern
-        </v-btn>
+          color="blue darken-1"
+          text="Speichern"
+          @click="save"
+        ></v-btn>
       </v-card-actions>
-      <v-alert v-model="saveAlertError" dismissible text type="error">
-        Speichern war nicht erfolgreich:
-        {{ saveAlertErrorMessage }}
+      <v-alert v-model="saveAlertError" closable type="error">
+        Speichern war nicht erfolgreich: {{ saveAlertErrorMessage }}
       </v-alert>
     </v-container>
   </v-card>

@@ -1,33 +1,30 @@
-UserRest:
-  required:
-    - username
-    - password
+UserSessionRest:
   type: object
-  properties:
-    username:
-      type: string
-    password:
-      type: string
-
-AuthTokenRest:
   required:
-    - token
-  type: object
-  properties:
-    token:
-      type: string
-
-RoleRest:
-  required:
-    - username
+    - email
     - role
+    - sessionId
+  properties:
+    email:
+      type: string
+    permissions:
+      type: array
+      items:
+        $ref: 'users.model.yaml#/UserPermissionRest'
+    sessionId:
+      type: string
+
+SessionIdCreated:
+  required:
+    - sessionId
   type: object
   properties:
-    username:
+    sessionId:
       type: string
-    role:
-      type: string
-      enum:
-        - read_only
-        - read_write
-        - admin
+
+UserPermissionRest:
+  type: string
+  enum:
+    - read
+    - write
+    - admin

@@ -4,9 +4,14 @@ import de.zbw.api.lori.server.config.LoriConfiguration
 import de.zbw.api.lori.server.connector.DAConnector
 import de.zbw.api.lori.server.type.DACommunity
 import de.zbw.business.lori.server.LoriServerBackend
+import de.zbw.business.lori.server.type.RightError
+import de.zbw.lori.api.ApplyTemplatesRequest
+import de.zbw.lori.api.ApplyTemplatesResponse
 import de.zbw.lori.api.FullImportRequest
 import de.zbw.lori.api.FullImportResponse
 import de.zbw.lori.api.LoriServiceGrpcKt
+import de.zbw.lori.api.TemplateApplication
+import de.zbw.lori.api.TemplateError
 import io.grpc.Status
 import io.grpc.StatusRuntimeException
 import io.opentelemetry.api.trace.SpanKind
@@ -43,7 +48,8 @@ class LoriGrpcServer(
         return withContext(span.asContextElement()) {
             try {
                 val token = daConnector.login()
-                val imports = runImports(config.digitalArchiveCommunity, token)
+                val communityIds = daConnector.getAllCommunityIds(token)
+                val imports = runImports(communityIds, token)
                 FullImportResponse
                     .newBuilder()
                     .setItemsImported(imports)
@@ -60,15 +66,63 @@ class LoriGrpcServer(
         }
     }
 
-    private suspend fun runImports(communities: List<String>, token: String): Int {
+    override suspend fun applyTemplates(request: ApplyTemplatesRequest): ApplyTemplatesResponse {
+        val span = tracer
+            .spanBuilder("lori.LoriService/ApplyTemplates")
+            .setSpanKind(SpanKind.SERVER)
+            .startSpan()
+        return withContext(span.asContextElement()) {
+            try {
+                val backendResponse: Map<Int, Pair<List<String>, List<RightError>>> = if (request.all) {
+                    daConnector.backend.applyAllTemplates()
+                } else {
+                    daConnector.backend.applyTemplates(request.templateIdsList)
+                }
+                val templateApplications: List<TemplateApplication> = backendResponse.entries.map { e ->
+                    TemplateApplication
+                        .newBuilder()
+                        .setTemplateId(e.key)
+                        .setNumberAppliedEntries(e.value.first.size)
+                        .addAllMetadataIds(e.value.first)
+                        .addAllErrors(
+                            e.value.second.map {
+                                TemplateError.newBuilder()
+                                    .setErrorId(it.errorId ?: -1)
+                                    .setMessage(it.message)
+                                    .setTemplateIdSource(it.templateIdSource ?: -1)
+                                    .setRightIdSource(it.rightIdSource ?: "")
+                                    .setMetadataId(it.metadataId)
+                                    .setHandleId(it.handleId)
+                                    .setConflictingRightId(it.conflictingRightId)
+                                    .setCreatedOn(it.createdOn?.toInstant()?.toEpochMilli() ?: -1)
+                                    .build()
+                            }
+                        )
+                        .build()
+                }
+                ApplyTemplatesResponse
+                    .newBuilder()
+                    .addAllTemplateApplications(templateApplications)
+                    .build()
+            } catch (e: Throwable) {
+                span.setStatus(StatusCode.ERROR, e.message ?: e.cause.toString())
+                throw StatusRuntimeException(
+                    Status.INTERNAL.withCause(e.cause)
+                        .withDescription("Following error occurred: ${e.message}\nStacktrace: ${e.stackTraceToString()}")
+                )
+            }
+        }
+    }
+
+    private suspend fun runImports(communityIds: List<Int>, token: String): Int {
         val semaphore = Semaphore(3)
         val mutex = Mutex()
         var importCount = 0
         coroutineScope {
             launch(Dispatchers.IO) {
-                repeat(communities.size) {
+                repeat(communityIds.size) {
                     semaphore.acquire()
-                    val imports = importCommunity(token, communities[it])
+                    val imports = importCommunity(token, communityIds[it])
                     mutex.withLock {
                         importCount += imports
                     }
@@ -79,10 +133,10 @@ class LoriGrpcServer(
         return importCount
     }
 
-    private suspend fun importCommunity(token: String, communityId: String): Int {
+    private suspend fun importCommunity(token: String, communityId: Int): Int {
         LOG.info("Start importing community $communityId")
         val daCommunity: DACommunity = daConnector.getCommunity(token, communityId)
-        val import = daConnector.startFullImport(token, daCommunity.collections.map { it.id })
+        val import = daConnector.startFullImport(token, daCommunity)
         return import.sum()
     }
 

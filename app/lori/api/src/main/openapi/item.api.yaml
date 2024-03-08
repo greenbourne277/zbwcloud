@@ -1,5 +1,7 @@
 item:
   post:
+    security:
+      - cookieAuth: []
     tags:
       - item
     summary: Add a new relation between metadata and right
@@ -11,6 +13,14 @@ item:
           schema:
             $ref: 'item.model.yaml#/ItemEntry'
       required: true
+    parameters:
+      - name: deleteRightOnConflict
+        in: query
+        description: If a conflict with other rights of the metadata id exists, delete the right information
+        required: false
+        schema:
+          type: boolean
+          default: false
     responses:
       201:
         description: Successfully created
@@ -22,7 +32,7 @@ item:
             schema:
               $ref: 'errorhandling.model.yaml#/ErrorRest'
       409:
-        description: Conflict resource exists already
+        description: Conflict resource exists already or date fields may conflict
         content:
           application/json:
             schema:
@@ -37,6 +47,8 @@ item:
 
 item-deletion:
   delete:
+    security:
+      - cookieAuth: []
     tags:
       - item
     summary: Delete an item relation
@@ -73,6 +85,8 @@ item-deletion:
 
 item-metadata:
   delete:
+    security:
+      - cookieAuth: []
     tags:
       - item
     summary: Delete all item relations with metadata id
@@ -189,6 +203,8 @@ item-list:
 
 item-right:
   delete:
+    security:
+      - cookieAuth: []
     tags:
       - item
     summary: Delete all item relations with right id
@@ -330,6 +346,10 @@ item-search:
         schema:
           type: string
       - name: filterNoRightInformation
+        in: query
+        schema:
+          type: string
+      - name: filterTemplateId
         in: query
         schema:
           type: string

@@ -1,25 +1,28 @@
 package de.zbw.business.lori.server
 
-import com.auth0.jwt.JWT
-import com.auth0.jwt.algorithms.Algorithm
 import de.zbw.api.lori.server.config.LoriConfiguration
 import de.zbw.api.lori.server.exception.ResourceStillInUseException
+import de.zbw.api.lori.server.route.ApiError
+import de.zbw.api.lori.server.type.Either
 import de.zbw.business.lori.server.type.Bookmark
+import de.zbw.business.lori.server.type.BookmarkTemplate
+import de.zbw.business.lori.server.type.ConflictType
 import de.zbw.business.lori.server.type.Group
 import de.zbw.business.lori.server.type.Item
 import de.zbw.business.lori.server.type.ItemMetadata
 import de.zbw.business.lori.server.type.ItemRight
+import de.zbw.business.lori.server.type.RightError
 import de.zbw.business.lori.server.type.SearchQueryResult
-import de.zbw.business.lori.server.type.User
-import de.zbw.business.lori.server.type.UserRole
-import de.zbw.lori.model.UserRest
+import de.zbw.business.lori.server.type.Session
+import de.zbw.lori.model.ErrorRest
 import de.zbw.persistence.lori.server.DatabaseConnector
 import de.zbw.persistence.lori.server.FacetTransientSet
-import io.ktor.server.auth.jwt.JWTPrincipal
+import de.zbw.persistence.lori.server.TemplateRightIdCreated
+import io.ktor.http.HttpStatusCode
 import io.opentelemetry.api.trace.Tracer
 import org.apache.logging.log4j.util.Strings
 import java.security.MessageDigest
-import java.util.Date
+import java.time.OffsetDateTime
 
 /**
  * Backend for the Lori-Server.
@@ -29,7 +32,7 @@ import java.util.Date
  */
 class LoriServerBackend(
     internal val dbConnector: DatabaseConnector,
-    private val config: LoriConfiguration,
+    internal val config: LoriConfiguration,
 ) {
     constructor(
         config: LoriConfiguration,
@@ -42,7 +45,7 @@ class LoriServerBackend(
         config
     )
 
-    fun insertRightForMetadataIds(
+    internal fun insertRightForMetadataIds(
         right: ItemRight,
         metadataIds: List<String>,
     ): String {
@@ -53,7 +56,26 @@ class LoriServerBackend(
         return pkRight
     }
 
-    fun insertItemEntry(metadataId: String, rightId: String) = dbConnector.itemDB.insertItem(metadataId, rightId)
+    fun insertItemEntry(
+        metadataId: String,
+        rightId: String,
+        deleteOnConflict: Boolean = false
+    ): Either<Pair<HttpStatusCode, ErrorRest>, String> =
+        if (checkRightConflicts(metadataId, rightId)) {
+            if (deleteOnConflict) {
+                dbConnector.rightDB.deleteRightsByIds(listOf(rightId))
+            }
+            Either.Left(
+                Pair(
+                    HttpStatusCode.Conflict,
+                    ApiError.conflictError("Es gibt einen Start- und/oder Enddatum Konflikt mit bereits bestehenden Rechten")
+                )
+            )
+        } else {
+            dbConnector.itemDB.insertItem(metadataId, rightId)
+                ?.let { Either.Right(it) }
+                ?: Either.Left(Pair(HttpStatusCode.InternalServerError, ApiError.internalServerError()))
+        }
 
     fun insertMetadataElements(metadataElems: List<ItemMetadata>): List<String> =
         metadataElems.map { insertMetadataElement(it) }
@@ -193,7 +215,7 @@ class LoriServerBackend(
 
     fun countMetadataEntries(): Int =
         dbConnector.searchDB.countSearchMetadata(
-            emptyMap(),
+            emptyList(),
             emptyList(),
             emptyList(),
             null,
@@ -230,59 +252,38 @@ class LoriServerBackend(
             dbConnector.rightDB.getRightsByIds(it)
         }
 
-    fun userContainsName(name: String): Boolean = dbConnector.userDB.userTableContainsName(name)
+    fun deleteSessionById(sessionID: String) =
+        dbConnector.userDB.deleteSessionById(sessionID)
 
-    fun insertNewUser(user: UserRest): String =
-        dbConnector.userDB.insertUser(
-            User(
-                name = user.username,
-                passwordHash = hashString("SHA-256", user.password),
-                role = UserRole.READONLY,
-            )
-        )
+    fun getSessionById(sessionID: String): Session? =
+        dbConnector.userDB.getSessionById(sessionID)
 
-    fun checkCredentials(user: UserRest): Boolean =
-        dbConnector.userDB.userExistsByNameAndPassword(
-            user.username,
-            hashString("SHA-256", user.password),
-        )
+    fun insertSession(session: Session): String =
+        dbConnector.userDB.insertSession(session)
 
-    fun getCurrentUserRole(username: String): UserRole? =
-        dbConnector.userDB.getRoleByUsername(username)
-
-    fun updateUserNonRoleProperties(user: UserRest): Int =
-        dbConnector.userDB.updateUserNonRoleProperties(
-            User(
-                name = user.username,
-                passwordHash = hashString("SHA-256", user.password),
-                role = null,
-            )
-        )
-
-    fun updateUserRoleProperty(username: String, role: UserRole): Int =
-        dbConnector.userDB.updateUserRoleProperty(username, role)
-
-    fun deleteUser(username: String): Int =
-        dbConnector.userDB.deleteUser(username)
-
-    fun generateJWT(username: String): String = JWT.create()
-        .withAudience(config.jwtAudience)
-        .withIssuer(config.jwtIssuer)
-        .withClaim("username", username)
-        .withExpiresAt(Date(System.currentTimeMillis() + 60000))
-        .sign(Algorithm.HMAC256(config.jwtSecret))
+    private fun checkRightConflicts(metadataId: String, newRightId: String): Boolean {
+        // Get all right ids
+        val rightIds = dbConnector.itemDB.getRightIdsByMetadataId(metadataId)
+        // Get data for all rights
+        val rights: List<ItemRight> = dbConnector.rightDB.getRightsByIds(rightIds)
+        val newRight: ItemRight = dbConnector.rightDB.getRightsByIds(listOf(newRightId)).firstOrNull() ?: return false
+        // Check for conflicts
+        return rights.foldRight(false) { r, acc ->
+            acc || checkForDateConflict(newRight, r)
+        }
+    }
 
     fun searchQuery(
         searchTerm: String?,
-        limit: Int,
-        offset: Int,
+        limit: Int?,
+        offset: Int?,
         metadataSearchFilter: List<MetadataSearchFilter> = emptyList(),
         rightSearchFilter: List<RightSearchFilter> = emptyList(),
         noRightInformationFilter: NoRightInformationFilter? = null,
     ): SearchQueryResult {
-        val keys = searchTerm
-            ?.let { parseValidSearchKeys(it) }
-            ?: emptyMap()
+        val keys: List<SearchPair> = searchTerm
+            ?.let { parseValidSearchPairs(it) }
+            ?: emptyList()
 
         val invalidSearchKeys = searchTerm
             ?.let { parseInvalidSearchKeys(it) }
@@ -317,7 +318,7 @@ class LoriServerBackend(
         // Acquire number of results
         val numberOfResults =
             items
-                .takeIf { it.isNotEmpty() }
+                .takeIf { it.isNotEmpty() || offset != 0 }
                 ?.let {
                     dbConnector.searchDB.countSearchMetadata(
                         keys,
@@ -346,66 +347,240 @@ class LoriServerBackend(
             invalidSearchKey = invalidSearchKeys,
             paketSigels = facets.paketSigels,
             publicationType = facets.publicationType,
+            templateIds = getTemplateNamesForIds(facets.templateIdToOccurence),
             zdbIds = facets.zdbIds,
         )
+    }
+
+    private fun getTemplateNamesForIds(idToCount: Map<Int, Int>): Map<Int, Pair<String, Int>> {
+        return dbConnector.rightDB.getRightsByTemplateIds(idToCount.keys.toList()).mapNotNull { right ->
+            if (right.templateId == null || right.templateName == null || idToCount[right.templateId] == null) {
+                return@mapNotNull null
+            }
+            right.templateId to (right.templateName to idToCount[right.templateId]!!)
+        }.toMap()
     }
 
     fun insertBookmark(bookmark: Bookmark): Int =
         dbConnector.bookmarkDB.insertBookmark(bookmark)
 
-    fun deleteBookmark(bookmarkId: Int): Int = dbConnector.bookmarkDB.deleteBookmarkById(bookmarkId)
+    fun deleteBookmark(bookmarkId: Int): Int {
+        val receivedTemplateIds = dbConnector.bookmarkTemplateDB.getTemplateIdsByBookmarkId(bookmarkId)
+        return if (receivedTemplateIds.isEmpty()) {
+            dbConnector.bookmarkDB.deleteBookmarkById(bookmarkId)
+        } else {
+            throw ResourceStillInUseException(
+                "Bookmark wird noch von folgenden Template-Ids verwendet: " + receivedTemplateIds.joinToString(separator = ",")
+            )
+        }
+    }
+
     fun updateBookmark(bookmarkId: Int, bookmark: Bookmark): Int =
-        dbConnector.bookmarkDB.updateBookmarksById(bookmarkId, bookmark)
+        dbConnector.bookmarkDB.updateBookmarkById(bookmarkId, bookmark)
 
     fun getBookmarkById(bookmarkId: Int): Bookmark? =
         dbConnector.bookmarkDB.getBookmarksByIds(listOf(bookmarkId)).firstOrNull()
+
+    fun getBookmarkList(
+        limit: Int,
+        offset: Int,
+    ): List<Bookmark> =
+        dbConnector.bookmarkDB.getBookmarkList(limit, offset)
+
+    /**
+     * Insert template.
+     */
+    fun insertTemplate(right: ItemRight): TemplateRightIdCreated {
+        val freeTemplateId = dbConnector.rightDB.getMaxTemplateId() + 1 // TODO(CB): use the lowest available number
+        val rightId = dbConnector.rightDB.insertRight(right.copy(templateId = freeTemplateId))
+        return TemplateRightIdCreated(
+            templateId = freeTemplateId,
+            rightId = rightId
+        )
+    }
+
+    fun deleteRightByTemplateId(templateId: Int): Int = dbConnector.rightDB.deleteRightByTemplateId(templateId)
+
+    fun getRightByTemplateId(templateId: Int): ItemRight? =
+        dbConnector.rightDB.getRightsByTemplateIds(listOf(templateId)).firstOrNull()
+
+    fun getTemplateList(
+        limit: Int,
+        offset: Int,
+    ): List<ItemRight> =
+        dbConnector.rightDB.getTemplateList(limit, offset)
+
+    /**
+     * Template-Bookmark Pair.
+     */
+    fun getBookmarksByTemplateId(
+        templateId: Int,
+    ): List<Bookmark> {
+        val bookmarkIds = dbConnector.bookmarkTemplateDB.getBookmarkIdsByTemplateId(templateId)
+        return dbConnector.bookmarkDB.getBookmarksByIds(bookmarkIds)
+    }
+
+    fun deleteBookmarkTemplatePair(
+        templateId: Int,
+        bookmarkId: Int,
+    ): Int = dbConnector.bookmarkTemplateDB.deleteTemplateBookmarkPair(
+        BookmarkTemplate(
+            bookmarkId = bookmarkId,
+            templateId = templateId
+        )
+    )
+
+    fun insertBookmarkTemplatePair(
+        bookmarkId: Int,
+        templateId: Int,
+    ): Int = dbConnector.bookmarkTemplateDB.insertTemplateBookmarkPair(
+        BookmarkTemplate(
+            bookmarkId = bookmarkId,
+            templateId = templateId
+        )
+    )
+
+    fun upsertBookmarkTemplatePairs(bookmarkTemplates: List<BookmarkTemplate>): List<BookmarkTemplate> =
+        dbConnector.bookmarkTemplateDB.upsertTemplateBookmarkBatch(bookmarkTemplates)
+
+    fun deleteBookmarkTemplatePairs(bookmarkTemplates: List<BookmarkTemplate>): Int =
+        bookmarkTemplates.sumOf {
+            dbConnector.bookmarkTemplateDB.deleteTemplateBookmarkPair(it)
+        }
+
+    fun deleteBookmarkTemplatePairsByTemplateId(templateId: Int): Int =
+        dbConnector.bookmarkTemplateDB.deletePairsByTemplateId(templateId)
+
+    fun applyAllTemplates(): Map<Int, Pair<List<String>, List<RightError>>> =
+        dbConnector.rightDB.getAllTemplateIds()
+            .let { applyTemplates(it) }
+
+    fun applyTemplates(templateIds: List<Int>): Map<Int, Pair<List<String>, List<RightError>>> =
+        templateIds.associateWith { templateId ->
+            applyTemplate(templateId)
+        }
+
+    internal fun applyTemplate(templateId: Int): Pair<List<String>, List<RightError>> {
+        // Get Right_Id
+        val right: ItemRight =
+            dbConnector.rightDB.getRightsByTemplateIds(listOf(templateId)).firstOrNull() ?: return Pair(
+                emptyList(),
+                emptyList()
+            )
+        val rightId = right.rightId ?: throw InternalError("RightId is missing for $right")
+        // Receive all bookmark ids
+        val bookmarkIds: List<Int> = dbConnector.bookmarkTemplateDB.getBookmarkIdsByTemplateId(templateId)
+        // Get search results for each bookmark
+        val bookmarks: List<Bookmark> = dbConnector.bookmarkDB.getBookmarksByIds(bookmarkIds)
+        val searchResults: Set<Item> = bookmarks.asSequence().flatMap { b ->
+            searchQuery(
+                searchTerm = b.searchPairs?.let { searchPairsToString(it) } ?: "",
+                limit = null,
+                offset = null,
+                metadataSearchFilter = listOfNotNull(
+                    b.paketSigelFilter,
+                    b.publicationDateFilter,
+                    b.publicationTypeFilter,
+                    b.zdbIdFilter,
+                ),
+                rightSearchFilter = listOfNotNull(
+                    b.accessStateFilter,
+                    b.temporalValidityFilter,
+                    b.validOnFilter,
+                    b.startDateFilter,
+                    b.endDateFilter,
+                    b.formalRuleFilter,
+                ),
+                noRightInformationFilter = b.noRightInformationFilter,
+            ).results
+        }.toSet()
+
+        // Delete all template connections
+        dbConnector.itemDB.deleteItemByRight(rightId)
+
+        // Update last_applied_on field
+        dbConnector.rightDB.updateAppliedOnByTemplateId(templateId)
+
+        // Connect Template to all results
+        val itemsWithConflicts: Pair<Set<Item>, List<RightError>> =
+            findItemsWithConflicts(searchResults, right, templateId)
+        val searchResultsWithoutConflict = searchResults.subtract(itemsWithConflicts.first)
+        val appliedMetadataIds = searchResultsWithoutConflict.map { result ->
+            dbConnector.itemDB.insertItem(
+                metadataId = result.metadata.metadataId,
+                rightId = rightId,
+            )
+            result.metadata.metadataId
+        }
+        return Pair(appliedMetadataIds, itemsWithConflicts.second)
+    }
+
+    /**
+     * Errors.
+     */
+    fun getRightErrorList(limit: Int, offset: Int): List<RightError> =
+        dbConnector.rightErrorDB.getErrorList(limit = limit, offset = offset)
 
     companion object {
         /**
          * Valid patterns: key:value or key:'value1 value2 ...'.
          * Valid special characters: '-:;'
          */
-        private val SEARCH_KEY_REGEX = Regex("\\w+:[\\w-:;]+|\\w+:'[\\w\\s-:;]+'")
+        private val SEARCH_KEY_REGEX = Regex("\\w+:[^\"\']\\S+|\\w+:'(\\s|[^\'])+'|\\w+:\"(\\s|[^\"])+\"")
+        private val LOGICAL_OPERATIONS = setOf("|", "&", "(", ")")
 
-        fun isJWTExpired(principal: JWTPrincipal): Boolean {
-            val expiresAt: Long? = principal
-                .expiresAt
-                ?.time
-                ?.minus(System.currentTimeMillis())
-            return expiresAt == null || expiresAt < 0
-        }
-
-        // TODO: Move these functions to QueryParameterParser
         fun parseInvalidSearchKeys(s: String): List<String> =
             tokenizeSearchInput(s).mapNotNull {
-                val keyname = it.substringBefore(":")
-                if (SearchKey.toEnum(keyname) == null) {
-                    keyname
+                val keyName = it.substringBefore(":")
+                if (SearchKey.toEnum(keyName) == null) {
+                    keyName
                 } else {
                     null
                 }
             }
 
-        fun parseValidSearchKeys(s: String?): Map<SearchKey, List<String>> =
+        // parseValidSearchKeys . searchKeysToString == id
+        fun parseValidSearchPairs(s: String?): List<SearchPair> =
             s?.let { tokenizeSearchInput(it) }?.mapNotNull {
                 val key: SearchKey? = SearchKey.toEnum(it.substringBefore(":"))
                 if (key == null) {
                     null
                 } else {
-                    key to it.substringAfter(":").trim().split("\\s+".toRegex())
+                    SearchPair(
+                        key = key,
+                        values = it.substringAfter(":").trim().let { v -> insertDefaultAndOperator(v) }
+                    )
                 }
-            }?.toMap() ?: emptyMap()
+            } ?: emptyList()
 
-        fun searchKeysToString(keys: Map<SearchKey, List<String>>): String =
-            keys.entries.joinToString(separator = " ") { e ->
-                "${e.key.fromEnum()}:${e.value.joinToString(prefix = "'", postfix = "'", separator = " ")}"
+        fun searchPairsToString(keys: List<SearchPair>): String =
+            keys.joinToString(separator = " ") { e ->
+                "${e.key.fromEnum()}:'${e.values}'"
             }
+
+        private fun insertDefaultAndOperator(v: String): String {
+            val tokens: List<String> = v.split("\\s+".toRegex())
+            return List(tokens.size) { idx ->
+                if (idx == 0) {
+                    return@List listOf(tokens[0])
+                }
+                if (!LOGICAL_OPERATIONS.contains(tokens[idx]) &&
+                    !LOGICAL_OPERATIONS.contains(tokens[idx - 1])
+                ) {
+                    return@List listOf("&", tokens[idx])
+                } else {
+                    return@List listOf(tokens[idx])
+                }
+            }.flatten().joinToString(separator = " ") { s: String ->
+                s.replace(":", "\\:").replace("\\\\:", "\\:")
+            } // Filter out :
+        }
 
         private fun tokenizeSearchInput(s: String): List<String> {
             val iter = SEARCH_KEY_REGEX.findAll(s).iterator()
             return generateSequence {
                 if (iter.hasNext()) {
-                    iter.next().value.filter { it != '\'' }
+                    iter.next().value.filter { it != '\'' && it != '\"' } // TODO: This does lead to errors for queries of the form com:"foo 'bar'"
                 } else {
                     null
                 }
@@ -429,6 +604,61 @@ class LoriServerBackend(
                 .getInstance(type)
                 .digest(input.toByteArray())
             return bytes.joinToString("") { "%02x".format(it) }
+        }
+
+        fun findItemsWithConflicts(
+            searchResults: Set<Item>,
+            right: ItemRight,
+            templateId: Int
+        ): Pair<Set<Item>, List<RightError>> {
+            val conflictErrors = emptyList<RightError>().toMutableList()
+            val conflictingItems: Set<Item> = searchResults.toList().filter { item ->
+                val rights = item.rights
+                rights.map { r ->
+                    if (r.rightId == right.rightId) {
+                        false
+                    } else {
+                        val hasConflict = checkForDateConflict(r, right)
+                        if (hasConflict) {
+                            conflictErrors.add(
+                                RightError(
+                                    templateIdSource = templateId,
+                                    metadataId = item.metadata.metadataId,
+                                    conflictType = ConflictType.DATE_OVERLAP,
+                                    conflictingRightId = right.rightId ?: "Unknown",
+                                    createdOn = OffsetDateTime.now(),
+                                    errorId = null,
+                                    rightIdSource = null,
+                                    handleId = item.metadata.handle,
+                                    message = "Start/End-Datum Konflikt: Template-ID ${right.templateId} steht im Widerspruch" +
+                                        " zur Rechte-ID ${right.rightId}, welche an die Metadata-ID ${item.metadata.metadataId}" +
+                                        " angebunden ist.",
+                                )
+                            )
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                }.any { it }
+            }.toSet()
+            return Pair(conflictingItems, conflictErrors.toList())
+        }
+
+        fun checkForDateConflict(r1: ItemRight, r2: ItemRight): Boolean {
+            return if (r1.endDate == null && r2.endDate == null) {
+                true
+            } else if (r1.endDate == null) {
+                r2.endDate!! > r1.startDate
+            } else if (r2.endDate == null) {
+                r1.endDate > r2.startDate
+            } else if (r1.endDate >= r2.startDate && r1.endDate <= r2.endDate) {
+                true
+            } else if (r1.startDate >= r2.startDate && r1.startDate < r2.endDate) {
+                true
+            } else if (r2.startDate >= r1.startDate && r2.startDate < r1.endDate) {
+                true
+            } else r1.startDate <= r2.endDate && r1.startDate >= r2.startDate
         }
     }
 }

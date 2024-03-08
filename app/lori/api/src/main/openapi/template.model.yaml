@@ -1,0 +1,56 @@
+TemplateIdCreated:
+  required:
+    - templateId
+    - rightId
+  type: object
+  properties:
+    templateId:
+      type: integer
+    rightId:
+      type: string
+
+BookmarkIdsRest:
+  type: object
+  properties:
+    bookmarkIds:
+      type: array
+      items:
+        type: integer
+
+TemplateIdsRest:
+  type: object
+  properties:
+    templateIds:
+      type: array
+      items:
+        type: integer
+
+TemplateApplicationRest:
+  required:
+    - metadataIds
+    - numberOfAppliedEntries
+    - templateId
+  type: object
+  properties:
+    metadataIds:
+      type: array
+      items:
+        type: string
+    numberOfAppliedEntries:
+      type: integer
+    templateId:
+      type: integer
+    errors:
+      type: array
+      items:
+        $ref: 'error.model.yaml#/RightErrorRest'
+
+TemplateApplicationsRest:
+  required:
+    - templateApplication
+  type: object
+  properties:
+    templateApplication:
+      type: array
+      items:
+        $ref: 'template.model.yaml#/TemplateApplicationRest'

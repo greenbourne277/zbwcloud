@@ -64,7 +64,22 @@ class DAConnector(
         return statement.bodyAsText()
     }
 
-    suspend fun getCommunity(loginToken: String, community: String): DACommunity {
+    suspend fun getAllCommunityIds(loginToken: String): List<Int> {
+        val response = client.request("$restURL/communities") {
+            method = HttpMethod.Get
+            headers {
+                append(HttpHeaders.Accept, "text/json")
+                append(HttpHeaders.Authorization, "Basic ${config.digitalArchiveBasicAuth}")
+            }
+            headers {
+                append(DSPACE_TOKEN, loginToken)
+            }
+            parameter("expand", "all")
+        }.body<List<DACommunity>>()
+        return response.map { it.id }
+    }
+
+    suspend fun getCommunity(loginToken: String, community: Int): DACommunity {
         val response = client.request("$restURL/communities/$community") {
             method = HttpMethod.Get
             headers {
@@ -79,12 +94,17 @@ class DAConnector(
         return response
     }
 
-    suspend fun startFullImport(loginToken: String, collectionIds: List<Int>): List<Int> =
+    suspend fun startFullImport(loginToken: String, community: DACommunity): List<Int> =
         coroutineScope {
+            val collectionIds = community.collections?.map { it.id } ?: emptyList()
             collectionIds.map { cId ->
-                val daItemList: List<DAItem> = importCollection(loginToken, cId)
-                val metadataList: List<ItemMetadata?> = daItemList.map { it.toBusiness() }
-                backend.upsertMetaData(metadataList.filterNotNull()).filter { it == 1 }.size
+                val daItemList: List<DAItem> =
+                    importCollection(loginToken, cId).map { item -> item.copy(parentCommunityList = listOf(community)) }
+                val metadataList: List<ItemMetadata> =
+                    daItemList
+                        .mapNotNull { it.toBusiness() }
+                        .map { shortenHandle(it) }
+                backend.upsertMetaData(metadataList).filter { it == 1 }.size
             }
         }
 
@@ -120,6 +140,11 @@ class DAConnector(
 
     companion object {
         const val DSPACE_TOKEN = "rest-dspace-token"
+        const val HANDLE_URL = "http://hdl.handle.net/"
         private val LOG = LogManager.getLogger(DAConnector::class.java)
+
+        internal fun shortenHandle(item: ItemMetadata) = item.copy(
+            handle = item.handle.substringAfter(HANDLE_URL)
+        )
     }
 }
