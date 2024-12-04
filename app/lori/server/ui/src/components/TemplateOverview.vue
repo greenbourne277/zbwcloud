@@ -5,6 +5,7 @@ import templateApi from "@/api/templateApi";
 import {
   RightErrorRest,
   RightRest,
+  TemplateApplicationRest,
   TemplateApplicationsRest,
 } from "@/generated-sources/openapi";
 import { useDialogsStore } from "@/stores/dialogs";
@@ -13,7 +14,7 @@ import RightsEditDialog from "@/components/RightsEditDialog.vue";
 export default defineComponent({
   components: { RightsEditDialog },
   props: {},
-  emits: ["getItemsByTemplateId"],
+  emits: ["getItemsByRightId"],
   setup(props, { emit }) {
     /**
      * Stores.
@@ -25,30 +26,42 @@ export default defineComponent({
     const renderKey = ref(0);
     const headers = [
       {
-        text: "Template Name",
+        title: "Template Name",
         align: "start",
         value: "templateName",
         sortable: true,
       },
       {
-        text: "Items verknüpfen",
+        title: "Ausnahme",
+        align: "start",
+        value: "isException",
+        sortable: false,
+      },
+      {
+        title: "Items verknüpfen",
         value: "displayConnectedItems",
         sortable: true,
       },
       {
-        text: "Template anwenden",
+        title: "Status",
+        value: "status",
+        sortable: false,
+      },
+      {
+        title: "Template anwenden",
         value: "applyTemplate",
         sortable: true,
       },
-      { text: "Actions", value: "actions", sortable: false },
+      { title: "Aktionen", value: "actions", sortable: false },
     ];
     const templateItems: Ref<Array<RightRest>> = ref([]);
+    const searchTerm = ref("");
 
     /**
      * Error messages.
      */
-    const templateLoadError = ref(false);
-    const templateLoadErrorMsg = ref("");
+    const errorMsgIsActive = ref(false);
+    const errorMsg = ref("");
     const templateApplyError = ref(false);
     const templateApplyErrorMsg = ref("");
     const templateApplyErrorNumber = ref(-1);
@@ -68,14 +81,14 @@ export default defineComponent({
         })
         .catch((e) => {
           error.errorHandling(e, (errMsg: string) => {
-            templateLoadErrorMsg.value = errMsg;
-            templateLoadError.value = true;
+            errorMsg.value = errMsg;
+            errorMsgIsActive.value = true;
           });
         });
     };
 
     const activateTemplateEditDialog = () => {
-      alertSuccessful.value = false;
+      successMsgIsActive.value = false;
       dialogStore.templateEditActivated = true;
     };
     const createNewTemplate = () => {
@@ -96,25 +109,35 @@ export default defineComponent({
     };
 
     const applyTemplate = (template: RightRest) => {
-      if (template.templateId == undefined) {
+      if (template.rightId == undefined) {
         return;
       }
       templateApi
-        .applyTemplates([template.templateId])
+        .applyTemplates([template.rightId], false, false)
         .then((r: TemplateApplicationsRest) => {
-          alertSuccessful.value = true;
-          alertSuccessfulMsg.value =
-            "Template '" +
-            template.templateName +
-            "' wurde für " +
-            r.templateApplication[0].numberOfAppliedEntries +
-            " Einträge angewandt.";
-          templateApplyItemsApplied.value = r.templateApplication.length;
+          const templateApplicationResult: TemplateApplicationRest =
+            r.templateApplication[0];
+          const infoMsg = constructApplicationInfoText(
+            templateApplicationResult,
+          );
+          successMsgIsActive.value = true;
+          successMsg.value = infoMsg;
+          templateApplyItemsApplied.value = r.templateApplication.length; // TODO: Handle error messages for exceptions
 
           // Check for errors
-          const errors: Array<RightErrorRest> = r.templateApplication.flatMap(
-            (t) => (t.errors != undefined ? t.errors : []),
-          );
+          let exceptionErrors: Array<RightErrorRest> = [];
+          if (
+            templateApplicationResult.exceptionTemplateApplications !==
+            undefined
+          ) {
+            exceptionErrors =
+              templateApplicationResult.exceptionTemplateApplications.flatMap(
+                (t) => (t.errors != undefined ? t.errors : []),
+              );
+          }
+          const errors: Array<RightErrorRest> = r.templateApplication
+            .flatMap((t) => (t.errors != undefined ? t.errors : []))
+            .concat(exceptionErrors);
           if (errors.length > 0) {
             templateApplyError.value = true;
             templateApplyErrorMsg.value = errors
@@ -126,10 +149,35 @@ export default defineComponent({
         })
         .catch((e) => {
           error.errorHandling(e, (errMsg: string) => {
-            templateLoadErrorMsg.value = errMsg;
-            templateLoadError.value = true;
+            errorMsg.value = errMsg;
+            errorMsgIsActive.value = true;
           });
         });
+    };
+
+    const constructApplicationInfoText: (
+      templateApplication: TemplateApplicationRest,
+    ) => string = (templateApplication: TemplateApplicationRest) => {
+      const parent: string =
+        "Template '" +
+        templateApplication.templateName +
+        "' wurde für " +
+        templateApplication.numberOfAppliedEntries +
+        " Einträge angewandt.";
+      let exceptions: string = "";
+      if (templateApplication.exceptionTemplateApplications !== undefined) {
+        exceptions = templateApplication.exceptionTemplateApplications
+          .map(
+            (tA: TemplateApplicationRest) =>
+              "Template (Ausnahme) '" +
+              tA.templateName +
+              "' wurde für " +
+              tA.numberOfAppliedEntries +
+              " Einträge angewandt.",
+          )
+          .join("\n");
+      }
+      return parent + "\n" + exceptions;
     };
 
     const closeApplyErrorMsg = () => {
@@ -139,17 +187,18 @@ export default defineComponent({
     /**
      * Alerts:
      */
-    const alertSuccessful = ref(false);
-    const alertSuccessfulMsg = ref("");
+    const successMsgIsActive = ref(false);
+    const successMsg = ref("");
 
     /**
      * Child events:
      */
     const lastModifiedTemplateName = ref("");
-    const childTemplateAdded = (templateName: string) => {
-      lastModifiedTemplateName.value = templateName;
-      alertSuccessful.value = true;
-      alertSuccessfulMsg.value =
+    const childTemplateAdded = (template: RightRest) => {
+      lastModifiedTemplateName.value =
+        template.templateName == undefined ? "invalid" : template.templateName;
+      successMsgIsActive.value = true;
+      successMsg.value =
         "Template " +
         lastModifiedTemplateName.value +
         " erfolgreich hinzugefügt.";
@@ -158,18 +207,19 @@ export default defineComponent({
 
     const childTemplateDeleted = (templateName: string) => {
       lastModifiedTemplateName.value = templateName;
-      alertSuccessful.value = true;
-      alertSuccessfulMsg.value =
+      successMsgIsActive.value = true;
+      successMsg.value =
         "Template " + lastModifiedTemplateName.value + " erfolgreich gelöscht.";
       updateTemplateOverview();
     };
 
     const childTemplateUpdated = (templateName: string) => {
       lastModifiedTemplateName.value = templateName;
-      alertSuccessful.value = true;
-      alertSuccessfulMsg.value =
-        "Template " + lastModifiedTemplateName.value + " erfolgreich editiert.";
+      successMsgIsActive.value = true;
+      successMsg.value =
+        "Template '" + lastModifiedTemplateName.value + "' erfolgreich editiert.";
       updateTemplateOverview();
+      closeTemplateEditDialog();
     };
 
     const updateTemplateOverview = () => {
@@ -180,17 +230,18 @@ export default defineComponent({
     /**
      * EMITS
      */
-    const emitGetItemsByTemplateId = (templateId?: number) => {
-      if (templateId != undefined) {
-        emit("getItemsByTemplateId", templateId);
+    const emitGetItemsByRightId = (rightId?: string, templateName?: string) => {
+      if (rightId != undefined && templateName != undefined) {
+        emit("getItemsByRightId", rightId, templateName);
+      } else {
+        console.log("Error: RightId or TemplateName where undefined: RightId: "
+            + rightId + "; Template Name: " + templateName);
       }
     };
 
     onMounted(() => getTemplateList());
 
     return {
-      alertSuccessful,
-      alertSuccessfulMsg,
       currentTemplate,
       dialogStore,
       headers,
@@ -198,12 +249,15 @@ export default defineComponent({
       isNew,
       reinitCounter,
       renderKey,
+      searchTerm,
+      successMsgIsActive,
+      successMsg,
       templateApplyError,
       templateApplyErrorMsg,
       templateApplyErrorNumber,
       templateApplyItemsApplied,
-      templateLoadError,
-      templateLoadErrorMsg,
+      errorMsgIsActive,
+      errorMsg,
       templateItems,
       applyTemplate,
       childTemplateAdded,
@@ -213,7 +267,7 @@ export default defineComponent({
       closeTemplateEditDialog,
       createNewTemplate,
       editTemplate,
-      emitGetItemsByTemplateId,
+      emitGetItemsByRightId,
       getTemplateList,
       updateTemplateOverview,
     };
@@ -221,17 +275,37 @@ export default defineComponent({
 });
 </script>
 
-<style scoped></style>
+<style scoped>
+.multi-line {
+  white-space: pre-line;
+}
+</style>
 <template>
-  <v-card>
+  <v-card position="relative">
     <v-container>
-      <v-alert v-model="alertSuccessful" closable type="success">
-        {{ alertSuccessfulMsg }}
-      </v-alert>
-      <v-alert v-model="templateLoadError" closable type="error">
-        {{ templateLoadErrorMsg }}
-      </v-alert>
-      <v-dialog v-model="templateApplyError" max-width="1000">
+      <v-snackbar
+          contained
+          multi-line
+          location="top"
+          timer="true"
+          timeout="10000"
+          v-model="successMsgIsActive"
+          color="success"
+      >
+        {{ successMsg }}
+      </v-snackbar>
+      <v-snackbar
+          contained
+          multi-line
+          location="top"
+          timer="true"
+          timeout="10000"
+          v-model="errorMsgIsActive"
+          color="error"
+      >
+        {{ errorMsg }}
+      </v-snackbar>
+      <v-dialog v-model="templateApplyError" max-width="500px">
         <v-card>
           <v-card-title class="text-h5"
             >Template Anwendung (teilweise) fehlgeschlagen</v-card-title
@@ -263,24 +337,45 @@ export default defineComponent({
           >Neues Template anlegen
         </v-btn>
       </v-card-actions>
+      <v-text-field
+        v-model="searchTerm"
+        append-icon="mdi-magnify"
+        hide-details
+        label="Suche"
+        single-line
+      ></v-text-field>
       <v-data-table
         :key="renderKey"
         :headers="headers"
         :items="templateItems"
+        :search="searchTerm"
         item-value="templateName"
         loading-text="Daten werden geladen... Bitte warten."
       >
         <template v-slot:item.displayConnectedItems="{ item }">
           <v-btn
             color="blue darken-1"
-            @click="emitGetItemsByTemplateId(item.templateId)"
+            @click="emitGetItemsByRightId(item.rightId, item.templateName)"
             >Alle verknüpften Items anzeigen
           </v-btn>
         </template>
+        <template v-slot:item.status="{ item }">
+          <v-icon v-if="item.lastAppliedOn == undefined">
+            mdi-alpha-e-box-outline
+          </v-icon>
+        </template>
         <template v-slot:item.applyTemplate="{ item }">
-          <v-btn color="blue darken-1" @click="applyTemplate(item)"
+          <v-btn
+            v-if="item.exceptionFrom == undefined"
+            color="blue darken-1"
+            @click="applyTemplate(item)"
             >Template anwenden</v-btn
           >
+        </template>
+        <template v-slot:item.isException="{ item }">
+          <v-icon v-if="item.exceptionFrom !== undefined">
+            mdi-alpha-a-box-outline
+          </v-icon>
         </template>
         <template v-slot:item.actions="{ item }">
           <v-icon small @click="editTemplate(item)">mdi-pencil</v-icon>
@@ -297,6 +392,10 @@ export default defineComponent({
           :isNewRight="false"
           :isNewTemplate="isNew"
           :reinit-counter="reinitCounter"
+          :is-exception-template="
+            currentTemplate.exceptionFrom !== undefined &&
+            currentTemplate.exceptionFrom != ''
+          "
           :right="currentTemplate"
           v-on:addTemplateSuccessful="childTemplateAdded"
           v-on:deleteTemplateSuccessful="childTemplateDeleted"

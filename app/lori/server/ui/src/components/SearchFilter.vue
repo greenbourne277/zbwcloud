@@ -4,9 +4,11 @@ import { useSearchStore } from "@/stores/search";
 import { useVuelidate } from "@vuelidate/core";
 import { useDialogsStore } from "@/stores/dialogs";
 import date_utils from "@/utils/date_utils";
+import metadata_utils from "@/utils/metadata_utils";
 
 export default defineComponent({
-  setup() {
+  emits: ["startEmptySearch", "startSearch"],
+  setup(props, { emit }) {
     const searchStore = useSearchStore();
     const temporalEvent = -1;
 
@@ -24,13 +26,13 @@ export default defineComponent({
     ) => boolean = (value: string, siblings: FormState) => {
       return !(
         ((value == "startDate" || value == "endDate") &&
-          startEndDateFormatted.value != "") ||
+          searchStore.temporalEventState.startDateOrEndDateFormattedValue != "") ||
         siblings.tempEventInput != undefined
       );
     };
 
     const rules = {
-      startDateOrEndDateValue: {},
+      startDateOrEndDateFormattedValue: {},
       startDateOrEndDateOption: { tempEventCheckForInput },
     };
 
@@ -39,8 +41,8 @@ export default defineComponent({
     const errorTempEventInput = computed(() => {
       const errors: Array<string> = [];
       if (
-        searchStore.temporalEventState.startDateOrEndDateValue == undefined ||
-        startEndDateFormatted.value == ""
+        searchStore.temporalEventState.startDateOrEndDateFormattedValue == "" ||
+        startDateOrEndDate.value == undefined
       ) {
         errors.push("Eintrag wird benötigt");
       }
@@ -51,7 +53,8 @@ export default defineComponent({
       const errors: Array<string> = [];
       if (
         !v$.value.startDateOrEndDateOption.$invalid &&
-        searchStore.temporalEventState.startDateOrEndDateValue != undefined
+        searchStore.temporalEventState.startDateOrEndDateFormattedValue != undefined &&
+          searchStore.temporalEventState.startDateOrEndDateFormattedValue != ""
       ) {
         errors.push("Wähle eine dieser Optionen aus");
       }
@@ -66,7 +69,7 @@ export default defineComponent({
         searchStore.accessStateOpen ||
         searchStore.accessStateRestricted ||
         searchStore.accessStateClosed ||
-        searchStore.temporalEventState.startDateOrEndDateValue != undefined ||
+        searchStore.temporalEventState.startDateOrEndDateFormattedValue != "" ||
         searchStore.temporalEventState.startDateOrEndDateOption != "" ||
         searchStore.accessStateClosed ||
         searchStore.accessStateOpen ||
@@ -77,14 +80,17 @@ export default defineComponent({
         searchStore.temporalValidityFilterFuture ||
         searchStore.temporalValidityFilterPresent ||
         searchStore.temporalValidityFilterPast ||
-        searchStore.temporalValidOn != undefined ||
+        searchStore.temporalValidOnFormatted != "" ||
         searchStore.accessStateIdx.filter((element) => element).length > 0 ||
         searchStore.paketSigelIdIdx.filter((element) => element).length > 0 ||
         searchStore.zdbIdIdx.filter((element) => element).length > 0 ||
-        searchStore.templateIdIdx.filter((element) => element).length > 0 ||
-        searchStore.publicationTypeIdx.filter((element) => element).length >
-          0 ||
-        searchStore.noRightInformation
+        searchStore.seriesIdx.filter((element) => element).length > 0 ||
+        searchStore.templateNameIdx.filter((element) => element).length > 0 ||
+        searchStore.publicationTypeIdx.filter((element) => element).length > 0 ||
+        searchStore.licenceUrlIdx.filter((element) => element).length > 0 ||
+        searchStore.noRightInformation ||
+        searchStore.searchTerm ||
+        searchStore.isLastSearchForTemplates
       );
     });
 
@@ -108,8 +114,8 @@ export default defineComponent({
       searchStore.temporalValidityFilterPresent = false;
       searchStore.temporalValidityFilterPast = false;
 
-      searchStore.temporalValidOn = undefined;
-      searchStore.temporalEventState.startDateOrEndDateValue = undefined;
+      searchStore.temporalValidOnFormatted = "";
+      searchStore.temporalEventState.startDateOrEndDateFormattedValue = "";
       searchStore.temporalEventState.startDateOrEndDateOption = "";
 
       searchStore.accessStateIdx = searchStore.accessStateIdx.map(() => false);
@@ -119,63 +125,42 @@ export default defineComponent({
       searchStore.publicationTypeIdx = searchStore.publicationTypeIdx.map(
         () => false,
       );
-      searchStore.templateIdIdx = searchStore.templateIdIdx.map(() => false);
+      searchStore.templateNameIdx = searchStore.templateNameIdx.map(
+        () => false,
+      );
       searchStore.zdbIdIdx = searchStore.zdbIdIdx.map(() => false);
+      searchStore.seriesIdx = searchStore.seriesIdx.map(() => false);
+      searchStore.licenceUrlIdx = searchStore.licenceUrlIdx.map(() => false);
       searchStore.noRightInformation = false;
+      emit("startEmptySearch");
     };
 
     const parseAccessState = (accessState: string, count: number) => {
       switch (accessState) {
         case "closed":
-          return "Closed Access " + "(" + count + ")";
+          return "Closed " + "(" + count + ")";
         case "open":
-          return "Open Access " + "(" + count + ")";
+          return "Open " + "(" + count + ")";
         case "restricted":
-          return "Restricted Access " + "(" + count + ")";
+          return "Restricted " + "(" + count + ")";
       }
     };
     const parsePublicationType = (pubType: string, count: number) => {
-      switch (pubType) {
-        case "article":
-          return "Aufsatz/Article " + "(" + count + ")";
-        case "book":
-          return "Buch/Book " + "(" + count + ")";
-        case "bookPart":
-          return "Buchaufsatz/Book Part " + "(" + count + ")";
-        /**
-         * IMPORTANT NOTE: Openapis conversion of enums between frontend and backend
-         * has issues with multiple word entries. The entries aren't always
-         * encoded as the interface suggests, for instance 'periodicalPart' is
-         * sometimes encoded as 'periodical_part'. That's the reason why all
-         * these conversions contain both variants.
-         */
-        case "conference_paper":
-          return "Konferenzschrift/\n Conference Paper " + "(" + count + ")";
-        case "conferencePaper":
-          return "Konferenzschrift/\n Conference Paper " + "(" + count + ")";
-        case "periodical_part":
-          return "Zeitschriftenband/\n Periodical Part " + "(" + count + ")";
-        case "periodicalPart":
-          return "Zeitschriftenband/\n Periodical Part " + "(" + count + ")";
-        case "proceedings":
-          return "Konferenzband/\n Proceeding " + "(" + count + ")";
-        case "research_report":
-          return "Forschungsbericht/\n Research Report " + "(" + count + ")";
-        case "researchReport":
-          return "Forschungsbericht/\n Research Report " + "(" + count + ")";
-        case "thesis":
-          return "Thesis " + "(" + count + ")";
-        case "working_paper":
-          return "Working Paper " + "(" + count + ")";
-        case "workingPaper":
-          return "Working Paper " + "(" + count + ")";
-        default:
-          return "Unknown pub type:" + pubType;
-      }
+      return (
+        metadata_utils.prettyPrintPublicationType(pubType) + " (" + count + ")"
+      );
     };
 
     const ppPaketSigel = (paketSigel: string, count: number) => {
       return paketSigel + " (" + count + ")";
+    };
+
+    const ppLicenceUrl = (licenceUrl: string, count: number) => {
+      if (licenceUrl == 'andere'){
+        return "Andere (" + count + ")";
+      } else {
+        return licenceUrl + " (" + count + ")";
+      }
     };
 
     const ppZDBId = (zdbId: string, count: number) => {
@@ -195,78 +180,101 @@ export default defineComponent({
      */
     const isStartEndDateMenuOpen = ref(false);
 
-    const startEndDateFormatted = computed(() => {
-      if (searchStore.temporalEventState.startDateOrEndDateValue != undefined) {
-        return date_utils.dateToIso8601(
-          searchStore.temporalEventState.startDateOrEndDateValue,
-        );
-      } else {
-        return "";
-      }
-    });
+    const startDateOrEndDate = ref(undefined as Date | undefined);
 
-    watch(startEndDateFormatted, () => {
+    const startDateOrEndDateEntered = () => {
+      if (startDateOrEndDate.value != undefined) {
+        searchStore.temporalEventState.startDateOrEndDateFormattedValue =  date_utils.dateToIso8601(startDateOrEndDate.value);
+      } else {
+        searchStore.temporalEventState.startDateOrEndDateFormattedValue = "";
+      }
+    };
+
+    watch(startDateOrEndDate, () => {
       isStartEndDateMenuOpen.value = false;
     });
 
     const isValidOnMenuOpen = ref(false);
-    const temporalValidOnFormatted = computed(() => {
-      if (searchStore.temporalValidOn != undefined) {
-        return date_utils.dateToIso8601(searchStore.temporalValidOn);
-      } else {
-        return "";
-      }
-    });
+    const temporalValidOn = ref(undefined as Date | undefined);
 
-    watch(temporalValidOnFormatted, () => {
+    const temporalValidOnEntered = () => {
+      if (temporalValidOn.value != undefined) {
+        searchStore.temporalValidOnFormatted = date_utils.dateToIso8601(temporalValidOn.value);
+      } else {
+        searchStore.temporalValidOnFormatted = "";
+      }
+      emit("startSearch");
+    };
+
+    watch(temporalValidOn, () => {
       isValidOnMenuOpen.value = false;
     });
+
+    const emitSearchStart = () => {
+      emit("startSearch");
+    };
+
+    const emitSearchStartPublicationDate = (date: string) => {
+      if (date.length == 4 || date.length == 0){
+        emit("startSearch");
+      }
+    };
 
     return {
       canReset,
       errorTempEventStartEnd,
       errorTempEventInput,
-      temporalValidOnFormatted,
+      temporalValidOn,
       isStartEndDateMenuOpen,
       isValidOnMenuOpen,
-      startEndDateFormatted,
+      startDateOrEndDate,
       temporalEvent,
       tempEventMenu,
       tempValidOnMenu,
       searchStore,
       v$,
       activateBookmarkSaveDialog,
+      emitSearchStart,
+      emitSearchStartPublicationDate,
       parseAccessState,
       parsePublicationType,
+      ppLicenceUrl,
       ppPaketSigel,
       ppZDBId,
       resetFilter,
+      startDateOrEndDateEntered,
+      temporalValidOnEntered,
     };
   },
 });
 </script>
+<style scoped>
+.scroll {
+  overflow-y: scroll;
+}
+</style>
 <template>
-  <v-card height="100%">
+  <v-card height="100%" class="scroll">
     <v-row>
       <v-col cols="auto">
         <v-btn
+          class="ml-8 mt-6"
           color="warning"
           :disabled="!canReset"
           @click="resetFilter"
-          size="large"
         >
-          Alle Filter resetten</v-btn
+          Suche resetten</v-btn
         >
       </v-col>
     </v-row>
     <v-row>
       <v-col cols="auto">
         <v-btn
+          class="ml-8"
           color="blue darken-1"
           @click="activateBookmarkSaveDialog"
-          size="large"
         >
-          Suchfilter speichern
+          Suche speichern
         </v-btn>
       </v-col>
     </v-row>
@@ -292,12 +300,14 @@ export default defineComponent({
                     <v-text-field
                       label="Von"
                       v-model="searchStore.publicationDateFrom"
+                      @update:modelValue="emitSearchStartPublicationDate(searchStore.publicationDateFrom)"
                     ></v-text-field>
                   </v-col>
                   <v-col cols="6">
                     <v-text-field
                       label="Bis"
                       v-model="searchStore.publicationDateTo"
+                      @update:modelValue="emitSearchStartPublicationDate(searchStore.publicationDateTo)"
                     ></v-text-field>
                   </v-col>
                 </v-row>
@@ -311,42 +321,140 @@ export default defineComponent({
                 ></v-list-item>
               </template>
               <h6></h6>
-              <v-checkbox
-                v-for="(item, i) in searchStore.publicationTypeReceived"
-                :key="i"
-                :label="parsePublicationType(item.publicationType, item.count)"
-                hide-details
-                class="pl-9 ml-4"
-                v-model="searchStore.publicationTypeIdx[i]"
-              ></v-checkbox>
+              <v-list>
+                <v-list-item
+                    v-for="(item, i) in searchStore.publicationTypeReceived"
+                    :key="i"
+                    :value="item"
+                    color="primary"
+                    rounded="shaped"
+                >
+                  <v-checkbox
+                      :label="parsePublicationType(item.publicationType, item.count)"
+                      hide-details
+                      class="pl-9 ml-4"
+                      v-model="searchStore.publicationTypeIdx[i]"
+                      @update:modelValue="emitSearchStart"
+                  ></v-checkbox>
+                  <v-divider
+                      :thickness="1"
+                      class="border-opacity-100"
+                      color="grey-lighten-1"
+                  ></v-divider>
+                </v-list-item>
+              </v-list>
             </v-list-group>
             <v-list-group sub-group>
               <template v-slot:activator="{ props }">
                 <v-list-item v-bind="props" title="Paketsigel"></v-list-item>
               </template>
               <h6></h6>
-              <v-checkbox
-                v-for="(item, i) in searchStore.paketSigelIdReceived"
-                :key="i"
-                :label="ppPaketSigel(item.paketSigel, item.count)"
-                hide-details
-                class="pl-9 ml-4"
-                v-model="searchStore.paketSigelIdIdx[i]"
-              ></v-checkbox>
+              <v-list>
+                <v-list-item
+                    v-for="(item, i) in searchStore.paketSigelIdReceived"
+                    :key="i"
+                    :value="item"
+                    color="primary"
+                    rounded="shaped"
+                >
+                  <v-checkbox
+                      :label="ppPaketSigel(item.paketSigel, item.count)"
+                      hide-details
+                      class="pl-9 ml-4"
+                      v-model="searchStore.paketSigelIdIdx[i]"
+                      @update:modelValue="emitSearchStart"
+                  ></v-checkbox>
+                  <v-divider
+                      :thickness="1"
+                      class="border-opacity-100"
+                      color="grey-lighten-1"
+                  ></v-divider>
+                </v-list-item>
+              </v-list>
+            </v-list-group>
+            <v-list-group sub-group>
+              <template v-slot:activator="{ props }">
+                <v-list-item v-bind="props" title="Serie"></v-list-item>
+              </template>
+              <h6></h6>
+              <v-list>
+                <v-list-item
+                    v-for="(item, i) in searchStore.seriesReceived"
+                    :key="i"
+                    :value="item"
+                    color="primary"
+                    rounded="shaped"
+                >
+                  <v-checkbox
+                      :label="ppZDBId(item.series, item.count)"
+                      hide-details
+                      class="pl-9 ml-4"
+                      v-model="searchStore.seriesIdx[i]"
+                      @update:modelValue="emitSearchStart"
+                  ></v-checkbox>
+                  <v-divider
+                      :thickness="1"
+                      class="border-opacity-100"
+                      color="grey-lighten-1"
+                  ></v-divider>
+                </v-list-item>
+              </v-list>
             </v-list-group>
             <v-list-group sub-group>
               <template v-slot:activator="{ props }">
                 <v-list-item v-bind="props" title="ZDB-IDs"></v-list-item>
               </template>
               <h6></h6>
-              <v-checkbox
-                v-for="(item, i) in searchStore.zdbIdReceived"
-                :key="i"
-                :label="ppZDBId(item.zdbId, item.count)"
-                hide-details
-                class="pl-9 ml-4"
-                v-model="searchStore.zdbIdIdx[i]"
-              ></v-checkbox>
+              <v-list>
+                <v-list-item
+                    v-for="(item, i) in searchStore.zdbIdReceived"
+                    :key="i"
+                    :value="item"
+                    color="primary"
+                    rounded="shaped"
+                >
+                  <v-checkbox
+                      :label="ppZDBId(item.zdbId, item.count)"
+                      hide-details
+                      class="pl-9 ml-4"
+                      v-model="searchStore.zdbIdIdx[i]"
+                      @update:modelValue="emitSearchStart"
+                  ></v-checkbox>
+                  <v-divider
+                      :thickness="1"
+                      class="border-opacity-100"
+                      color="grey-lighten-1"
+                  ></v-divider>
+                </v-list-item>
+              </v-list>
+            </v-list-group>
+            <v-list-group sub-group>
+              <template v-slot:activator="{ props }">
+                <v-list-item v-bind="props" title="CC-Lizenz"></v-list-item>
+              </template>
+              <h6></h6>
+              <v-list>
+                <v-list-item
+                    v-for="(item, i) in searchStore.licenceUrlReceived"
+                    :key="i"
+                    :value="item"
+                    color="primary"
+                    rounded="shaped"
+                >
+                  <v-checkbox
+                      :label="ppLicenceUrl(item.licenceUrl, item.count)"
+                      hide-details
+                      class="pl-9 ml-4"
+                      v-model="searchStore.licenceUrlIdx[i]"
+                      @update:modelValue="emitSearchStart"
+                  ></v-checkbox>
+                  <v-divider
+                      :thickness="1"
+                      class="border-opacity-100"
+                      color="grey-lighten-1"
+                  ></v-divider>
+                </v-list-item>
+              </v-list>
             </v-list-group>
           </v-list>
         </v-col>
@@ -362,14 +470,28 @@ export default defineComponent({
                 <v-list-item v-bind="props" title="Access-Status"></v-list-item>
               </template>
               <h6></h6>
-              <v-checkbox
-                v-for="(item, i) in searchStore.accessStateReceived"
-                :key="i"
-                :label="parseAccessState(item.accessState, item.count)"
-                hide-details
-                class="pl-9 ml-4"
-                v-model="searchStore.accessStateIdx[i]"
-              ></v-checkbox>
+              <v-list>
+                <v-list-item
+                    v-for="(item, i) in searchStore.accessStateReceived"
+                    :key="i"
+                    :value="item"
+                    color="primary"
+                    rounded="shaped"
+                >
+                  <v-checkbox
+                      :label="parseAccessState(item.accessState, item.count)"
+                      hide-details
+                      class="pl-9 ml-4"
+                      v-model="searchStore.accessStateIdx[i]"
+                      @update:modelValue="emitSearchStart"
+                  ></v-checkbox>
+                  <v-divider
+                      :thickness="1"
+                      class="border-opacity-100"
+                      color="grey-lighten-1"
+                  ></v-divider>
+                </v-list-item>
+              </v-list>
             </v-list-group>
             <v-list-group sub-group>
               <template v-slot:activator="{ props }">
@@ -385,15 +507,18 @@ export default defineComponent({
               >
                 <template v-slot:activator="{ props }">
                   <v-text-field
-                    :modelValue="temporalValidOnFormatted"
+                    v-model="searchStore.temporalValidOnFormatted"
                     prepend-icon="mdi-calendar"
                     v-bind="props"
                     readonly
+                    clearable
+                    @update:modelValue="emitSearchStart"
                   ></v-text-field>
                 </template>
                 <v-date-picker
-                  v-model="searchStore.temporalValidOn"
+                  v-model="temporalValidOn"
                   color="primary"
+                  @update:modelValue="temporalValidOnEntered"
                   ><template v-slot:header></template>
                 </v-date-picker>
               </v-menu>
@@ -413,22 +538,22 @@ export default defineComponent({
               >
                 <template v-slot:activator="{ props }">
                   <v-text-field
-                    :modelValue="startEndDateFormatted"
+                    v-model="searchStore.temporalEventState.startDateOrEndDateFormattedValue"
                     prepend-icon="mdi-calendar"
                     v-bind="props"
                     readonly
                     required
                     clearable
-                    @change="v$.startDateOrEndDateValue.$touch()"
-                    @blur="v$.startDateOrEndDateValue.$touch()"
+                    @change="v$.startDateOrEndDateFormattedValue.$touch()"
+                    @blur="v$.startDateOrEndDateFormattedValue.$touch()"
                     :error-messages="errorTempEventInput"
+                    @update:modelValue="emitSearchStart"
                   ></v-text-field>
                 </template>
                 <v-date-picker
-                  v-model="
-                    searchStore.temporalEventState.startDateOrEndDateValue
-                  "
+                  v-model="startDateOrEndDate"
                   color="primary"
+                  @update:modelValue="startDateOrEndDateEntered"
                   ><template v-slot:header></template>
                   <v-spacer></v-spacer>
                   <v-btn
@@ -441,9 +566,7 @@ export default defineComponent({
                     text="OK"
                     color="primary"
                     @click="
-                      $refs.tempEventMenu.save(
-                        searchStore.temporalEventState.startDateOrEndDateValue,
-                      )
+                      $refs.tempEventMenu.save(startDateOrEndDate)
                     "
                   ></v-btn>
                 </v-date-picker>
@@ -459,8 +582,14 @@ export default defineComponent({
                     "
                     value="startDate"
                     :error-messages="errorTempEventStartEnd"
+                    @update:modelValue="emitSearchStart"
                   ></v-checkbox>
                 </v-item>
+                <v-divider
+                    :thickness="1"
+                    class="border-opacity-100"
+                    color="grey-lighten-1"
+                ></v-divider>
                 <v-item>
                   <v-checkbox
                     label="Enddatum"
@@ -470,6 +599,7 @@ export default defineComponent({
                     "
                     :error-messages="errorTempEventStartEnd"
                     value="endDate"
+                    @update:modelValue="emitSearchStart"
                   ></v-checkbox>
                 </v-item>
               </v-item-group>
@@ -486,18 +616,31 @@ export default defineComponent({
                 hide-details
                 class="pl-9 ml-4"
                 v-model="searchStore.temporalValidityFilterPast"
+                @update:modelValue="emitSearchStart"
               ></v-checkbox>
+              <v-divider
+                  :thickness="1"
+                  class="border-opacity-100"
+                  color="grey-lighten-1"
+              ></v-divider>
               <v-checkbox
                 label="Aktuell"
                 hide-details
                 class="pl-9 ml-4"
                 v-model="searchStore.temporalValidityFilterPresent"
+                @update:modelValue="emitSearchStart"
               ></v-checkbox>
+              <v-divider
+                  :thickness="1"
+                  class="border-opacity-100"
+                  color="grey-lighten-1"
+              ></v-divider>
               <v-checkbox
                 label="Zukunft"
                 hide-details
                 class="pl-9 ml-4"
                 v-model="searchStore.temporalValidityFilterFuture"
+                @update:modelValue="emitSearchStart"
               ></v-checkbox>
             </v-list-group>
             <v-list-group sub-group>
@@ -514,20 +657,33 @@ export default defineComponent({
                 hide-details
                 class="pl-9 ml-4"
                 v-model="searchStore.formalRuleLicenceContract"
+                @update:modelValue="emitSearchStart"
               ></v-checkbox>
+              <v-divider
+                  :thickness="1"
+                  class="border-opacity-100"
+                  color="grey-lighten-1"
+              ></v-divider>
+              <v-checkbox
+                  v-if="searchStore.hasOpenContentLicence"
+                  label="Open-Content-Licence"
+                  hide-details
+                  class="pl-9 ml-4"
+                  v-model="searchStore.formalRuleOpenContentLicence"
+                  @update:modelValue="emitSearchStart"
+              ></v-checkbox>
+              <v-divider
+                  :thickness="1"
+                  class="border-opacity-100"
+                  color="grey-lighten-1"
+              ></v-divider>
               <v-checkbox
                 v-if="searchStore.hasZbwUserAgreement"
                 label="ZBW-Nutzungsvereinbarung"
                 hide-details
                 class="pl-9 ml-4"
                 v-model="searchStore.formalRuleUserAgreement"
-              ></v-checkbox>
-              <v-checkbox
-                v-if="searchStore.hasOpenContentLicence"
-                label="Open-Content-Licence"
-                hide-details
-                class="pl-9 ml-4"
-                v-model="searchStore.formalRuleOpenContentLicence"
+                @update:modelValue="emitSearchStart"
               ></v-checkbox>
             </v-list-group>
             <v-list-group no-action sub-group eager>
@@ -536,25 +692,43 @@ export default defineComponent({
               </template>
               <h6></h6>
               <v-checkbox
-                label="Keine Rechteeintrag"
+                label="Keine Rechteeinträge"
                 hide-details
                 class="pl-9 ml-4"
                 v-model="searchStore.noRightInformation"
+                @update:modelValue="emitSearchStart"
               ></v-checkbox>
             </v-list-group>
             <v-list-group sub-group>
               <template v-slot:activator="{ props }">
-                <v-list-item v-bind="props" title="Template-IDs"></v-list-item>
+                <v-list-item
+                  v-bind="props"
+                  title="Template-Namen"
+                ></v-list-item>
               </template>
               <h6></h6>
-              <v-checkbox
-                v-for="(item, i) in searchStore.templateIdReceived"
-                :key="i"
-                :label="ppZDBId(item.templateName, item.count)"
-                hide-details
-                class="pl-9 ml-4"
-                v-model="searchStore.templateIdIdx[i]"
-              ></v-checkbox>
+              <v-list>
+                <v-list-item
+                    v-for="(item, i) in searchStore.templateNameReceived"
+                    :key="i"
+                    :value="item"
+                    color="primary"
+                    rounded="shaped"
+                >
+                  <v-checkbox
+                      :label="ppZDBId(item.templateName, item.count)"
+                      hide-details
+                      class="pl-9 ml-4"
+                      v-model="searchStore.templateNameIdx[i]"
+                      @update:modelValue="emitSearchStart"
+                  ></v-checkbox>
+                  <v-divider
+                      :thickness="1"
+                      class="border-opacity-100"
+                      color="grey-lighten-1"
+                  ></v-divider>
+                </v-list-item>
+              </v-list>
             </v-list-group>
           </v-list>
         </v-col>

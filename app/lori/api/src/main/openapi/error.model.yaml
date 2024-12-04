@@ -1,28 +1,60 @@
-RightErrorRest:
+RightErrorInformationRest:
+  required:
+    - totalPages
+    - numberOfResults
+    - errors
+    - contextNames
+    - conflictTypes
   type: object
   properties:
-    conflictingRightId:
+    numberOfResults:
+      type: integer
+    totalPages:
+      type: integer
+    errors:
+      type: array
+      items:
+        $ref: 'error.model.yaml#/RightErrorRest'
+    contextNames:
+      type: array
+      items:
+        type: string
+    conflictTypes:
+      type: array
+      items:
+        $ref: 'error.model.yaml#/ConflictTypeRest'
+
+RightErrorRest:
+  required:
+    - message
+    - handle
+    - conflictType
+    - createdOn
+    - errorId
+  type: object
+  properties:
+    conflictByRightId:
+      type: string
+    conflictByContext:
       type: string
     conflictType:
       $ref: 'error.model.yaml#/ConflictTypeRest'
+    conflictingWithRightId:
+      type: string
     createdOn:
       type: string
       format: date-time
-    message:
-      type: string
     errorId:
       type: integer
-    handleId:
+    handle:
       type: string
-    metadataId:
+    message:
       type: string
-    rightIdSource:
-      type: string
-    templateIdSource:
-      type: integer
 
 ConflictTypeRest:
   type: string
   enum:
     - date_overlap
+    - gap
+    - no_right
     - unspecified

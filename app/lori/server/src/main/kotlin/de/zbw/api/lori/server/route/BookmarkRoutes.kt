@@ -1,9 +1,11 @@
 package de.zbw.api.lori.server.route
 
 import de.zbw.api.lori.server.exception.ResourceStillInUseException
+import de.zbw.api.lori.server.type.UserSession
 import de.zbw.api.lori.server.type.toBusiness
 import de.zbw.api.lori.server.type.toRest
 import de.zbw.business.lori.server.LoriServerBackend
+import de.zbw.business.lori.server.SearchFilter
 import de.zbw.business.lori.server.type.Bookmark
 import de.zbw.lori.model.BookmarkIdCreated
 import de.zbw.lori.model.BookmarkRawRest
@@ -12,6 +14,7 @@ import de.zbw.lori.model.ErrorRest
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.auth.authenticate
+import io.ktor.server.auth.principal
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -42,16 +45,19 @@ fun Routing.bookmarkRoutes(
     route("/api/v1/bookmarkraw") {
         authenticate("auth-login") {
             post {
-                val span: Span = tracer
-                    .spanBuilder("lori.LoriService.POST/api/v1/bookmarkraw")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span: Span =
+                    tracer
+                        .spanBuilder("lori.LoriService.POST/api/v1/bookmarkraw")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         @Suppress("SENSELESS_COMPARISON")
-                        val bookmark: BookmarkRawRest = call.receive(BookmarkRawRest::class)
-                            .takeIf { it.bookmarkName != null && it.bookmarkName != null }
-                            ?: throw BadRequestException("Invalid Json has been provided")
+                        val bookmark: BookmarkRawRest =
+                            call
+                                .receive(BookmarkRawRest::class)
+                                .takeIf { it.bookmarkName != null && it.bookmarkName != null }
+                                ?: throw BadRequestException("Invalid Json has been provided")
                         span.setAttribute("bookmark", bookmark.toString())
                         val pk = backend.insertBookmark(bookmark.toBusiness())
                         span.setStatus(StatusCode.OK)
@@ -63,7 +69,7 @@ fun Routing.bookmarkRoutes(
                                 HttpStatusCode.Conflict,
                                 ApiError.conflictError(
                                     detail = "Ein Bookmark mit diesem Namen existiert bereits.",
-                                )
+                                ),
                             )
                         } else {
                             span.setStatus(StatusCode.ERROR, "Exception: ${pe.message}")
@@ -71,14 +77,14 @@ fun Routing.bookmarkRoutes(
                                 HttpStatusCode.InternalServerError,
                                 ApiError.internalServerError(
                                     detail = "Ein interner Datenbankfehler ist aufgetreten.",
-                                )
+                                ),
                             )
                         }
                     } catch (e: BadRequestException) {
                         span.setStatus(StatusCode.ERROR, "BadRequest: ${e.message}")
                         call.respond(
                             HttpStatusCode.BadRequest,
-                            ApiError.badRequestError(ApiError.INVALID_JSON)
+                            ApiError.badRequestError(ApiError.INVALID_JSON),
                         )
                     } catch (e: Exception) {
                         span.setStatus(StatusCode.ERROR, "Exception: ${e.message}")
@@ -97,10 +103,11 @@ fun Routing.bookmarkRoutes(
              * Update an existing Bookmark.
              */
             put {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.PUT/api/v1/bookmarkraw")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.PUT/api/v1/bookmarkraw")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         val bookmark: BookmarkRawRest = call.receive(BookmarkRawRest::class)
@@ -115,7 +122,7 @@ fun Routing.bookmarkRoutes(
                                 HttpStatusCode.NotFound,
                                 ApiError.notFoundError(
                                     detail = "Für das Bookmark mit Id ${bookmark.bookmarkId} existiert kein Eintrag.",
-                                )
+                                ),
                             )
                         }
                     } catch (e: BadRequestException) {
@@ -140,14 +147,69 @@ fun Routing.bookmarkRoutes(
         }
     }
     route("/api/v1/bookmark") {
+        route("/list") {
+            get {
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.GET/api/v1/bookmark/list")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
+                withContext(span.asContextElement()) {
+                    try {
+                        val limit: Int = call.request.queryParameters["limit"]?.toInt() ?: 100
+                        val offset: Int = call.request.queryParameters["offset"]?.toInt() ?: 0
+                        if (limit < 1 || limit > 200) {
+                            span.setStatus(
+                                StatusCode.ERROR,
+                                "BadRequest: Limit parameter is expected to be between 1 and 200.",
+                            )
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                ErrorRest(
+                                    type = "/errors/badrequest",
+                                    title = "Ungültiger Query Parameter.",
+                                    detail = "Der Limit Parameter muss zwischen 1 und 200 sein.",
+                                    status = "400",
+                                ),
+                            )
+                            return@withContext
+                        }
+                        val receivedBookmarks: List<Bookmark> = backend.getBookmarkList(limit, offset)
+                        span.setStatus(StatusCode.OK)
+                        call.respond(
+                            receivedBookmarks.map { bookmark: Bookmark ->
+                                bookmark.toRest(
+                                    SearchFilter.bookmarkToString(bookmark),
+                                )
+                            },
+                        )
+                    } catch (e: Exception) {
+                        span.setStatus(StatusCode.ERROR, "Exception: ${e.message}")
+                        call.respond(
+                            HttpStatusCode.InternalServerError,
+                            ErrorRest(
+                                type = "/errors/internalservererror",
+                                title = "Unerwarteter Fehler.",
+                                detail = "Ein interner Fehler ist aufgetreten.",
+                                status = "500",
+                            ),
+                        )
+                    } finally {
+                        span.end()
+                    }
+                }
+            }
+        }
+
         /**
          * Return Bookmark for a given id.
          */
         get("{id}") {
-            val span = tracer
-                .spanBuilder("lori.LoriService.GET/api/v1/bookmark/{id}")
-                .setSpanKind(SpanKind.SERVER)
-                .startSpan()
+            val span =
+                tracer
+                    .spanBuilder("lori.LoriService.GET/api/v1/bookmark/{id}")
+                    .setSpanKind(SpanKind.SERVER)
+                    .startSpan()
             withContext(span.asContextElement()) {
                 try {
                     val bookmarkId = call.parameters["id"]?.toInt()
@@ -157,16 +219,20 @@ fun Routing.bookmarkRoutes(
                         call.respond(HttpStatusCode.BadRequest, "No valid id has been provided in the url.")
                     } else {
                         val bookmark: Bookmark? = backend.getBookmarkById(bookmarkId)
-                        bookmark?.let {
+                        bookmark?.let { b ->
                             span.setStatus(StatusCode.OK)
-                            call.respond(bookmark.toRest())
+                            call.respond(
+                                b.toRest(
+                                    SearchFilter.bookmarkToString(b),
+                                ),
+                            )
                         } ?: let {
                             span.setStatus(StatusCode.ERROR)
                             call.respond(
                                 HttpStatusCode.NotFound,
                                 ApiError.notFoundError(
                                     detail = "Für das Bookmark mit Id: $bookmarkId existiert kein Eintrag.",
-                                )
+                                ),
                             )
                         }
                     }
@@ -181,17 +247,31 @@ fun Routing.bookmarkRoutes(
                 }
             }
         }
+
         authenticate("auth-login") {
             post {
-                val span: Span = tracer
-                    .spanBuilder("lori.LoriService.POST/api/v1/bookmark")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span: Span =
+                    tracer
+                        .spanBuilder("lori.LoriService.POST/api/v1/bookmark")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         val bookmark: BookmarkRest = call.receive(BookmarkRest::class)
                         span.setAttribute("bookmark", bookmark.toString())
-                        val pk = backend.insertBookmark(bookmark.toBusiness())
+                        val userSession: UserSession =
+                            call.principal<UserSession>()
+                                ?: return@withContext call.respond(
+                                    HttpStatusCode.Unauthorized,
+                                    ApiError.unauthorizedError("User is not authorized"),
+                                ) // This should never happen
+                        val pk =
+                            backend.insertBookmark(
+                                bookmark.toBusiness().copy(
+                                    lastUpdatedBy = userSession.email,
+                                    createdBy = userSession.email,
+                                ),
+                            )
                         span.setStatus(StatusCode.OK)
                         call.respond(HttpStatusCode.Created, BookmarkIdCreated(pk))
                     } catch (pe: PSQLException) {
@@ -201,7 +281,7 @@ fun Routing.bookmarkRoutes(
                                 HttpStatusCode.Conflict,
                                 ApiError.conflictError(
                                     detail = "Ein Bookmark mit diesem Namen existiert bereits.",
-                                )
+                                ),
                             )
                         } else {
                             span.setStatus(StatusCode.ERROR, "Exception: ${pe.message}")
@@ -209,7 +289,7 @@ fun Routing.bookmarkRoutes(
                                 HttpStatusCode.InternalServerError,
                                 ApiError.internalServerError(
                                     detail = "Ein interner Datenbankfehler ist aufgetreten.",
-                                )
+                                ),
                             )
                         }
                     } catch (e: Exception) {
@@ -225,19 +305,33 @@ fun Routing.bookmarkRoutes(
                     }
                 }
             }
+
             /**
              * Update an existing Bookmark.
              */
             put {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.PUT/api/v1/bookmark")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.PUT/api/v1/bookmark")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         val bookmark: BookmarkRest = call.receive(BookmarkRest::class)
                         span.setAttribute("bookmark", bookmark.toString())
-                        val insertedRows = backend.updateBookmark(bookmark.bookmarkId, bookmark.toBusiness())
+                        val userSession: UserSession =
+                            call.principal<UserSession>()
+                                ?: return@withContext call.respond(
+                                    HttpStatusCode.Unauthorized,
+                                    ApiError.unauthorizedError("User is not authorized"),
+                                ) // This should never happen
+                        val insertedRows =
+                            backend.updateBookmark(
+                                bookmark.bookmarkId,
+                                bookmark.toBusiness().copy(
+                                    lastUpdatedBy = userSession.email,
+                                ),
+                            )
                         if (insertedRows == 1) {
                             span.setStatus(StatusCode.OK)
                             call.respond(HttpStatusCode.NoContent)
@@ -247,7 +341,7 @@ fun Routing.bookmarkRoutes(
                                 HttpStatusCode.NotFound,
                                 ApiError.notFoundError(
                                     detail = "Für das Bookmark mit Id ${bookmark.bookmarkId} existiert kein Eintrag.",
-                                )
+                                ),
                             )
                         }
                     } catch (e: BadRequestException) {
@@ -274,10 +368,11 @@ fun Routing.bookmarkRoutes(
              * Delete Bookmark by Id.
              */
             delete("{id}") {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.DELETE/api/v1/bookmark/{id}")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.DELETE/api/v1/bookmark/{id}")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         val bookmarkId = call.parameters["id"]?.toInt()
@@ -319,50 +414,6 @@ fun Routing.bookmarkRoutes(
                             HttpStatusCode.InternalServerError,
                             ApiError.internalServerError(
                                 detail = "Ein interner Datenbankfehler ist aufgetreten.",
-                            ),
-                        )
-                    } finally {
-                        span.end()
-                    }
-                }
-            }
-        }
-
-        route("/list") {
-            get {
-                val span = tracer.spanBuilder("lori.LoriService.GET/api/v1/bookmark/list").setSpanKind(SpanKind.SERVER)
-                    .startSpan()
-                withContext(span.asContextElement()) {
-                    try {
-                        val limit: Int = call.request.queryParameters["limit"]?.toInt() ?: 100
-                        val offset: Int = call.request.queryParameters["offset"]?.toInt() ?: 0
-                        if (limit < 1 || limit > 200) {
-                            span.setStatus(
-                                StatusCode.ERROR, "BadRequest: Limit parameter is expected to be between 1 and 200."
-                            )
-                            call.respond(
-                                HttpStatusCode.BadRequest,
-                                ErrorRest(
-                                    type = "/errors/badrequest",
-                                    title = "Ungültiger Query Parameter.",
-                                    detail = "Der Limit Parameter muss zwischen 1 und 200 sein.",
-                                    status = "400",
-                                ),
-                            )
-                            return@withContext
-                        }
-                        val receivedBookmarks: List<Bookmark> = backend.getBookmarkList(limit, offset)
-                        span.setStatus(StatusCode.OK)
-                        call.respond(receivedBookmarks.map { it.toRest() })
-                    } catch (e: Exception) {
-                        span.setStatus(StatusCode.ERROR, "Exception: ${e.message}")
-                        call.respond(
-                            HttpStatusCode.InternalServerError,
-                            ErrorRest(
-                                type = "/errors/internalservererror",
-                                title = "Unerwarteter Fehler.",
-                                detail = "Ein interner Fehler ist aufgetreten.",
-                                status = "500",
                             ),
                         )
                     } finally {

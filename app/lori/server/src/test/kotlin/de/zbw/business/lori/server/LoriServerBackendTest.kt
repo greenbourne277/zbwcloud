@@ -9,6 +9,7 @@ import de.zbw.business.lori.server.type.ItemMetadata
 import de.zbw.business.lori.server.type.ItemRight
 import de.zbw.business.lori.server.type.PublicationType
 import de.zbw.business.lori.server.type.RightError
+import de.zbw.persistence.lori.server.ConnectionPool
 import de.zbw.persistence.lori.server.DatabaseConnector
 import de.zbw.persistence.lori.server.DatabaseTest
 import io.mockk.every
@@ -16,6 +17,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.opentelemetry.api.OpenTelemetry
+import kotlinx.coroutines.runBlocking
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.MatcherAssert.assertThat
 import org.junit.Assert
@@ -37,14 +39,14 @@ import kotlin.test.assertTrue
  * @author Christian Bay (c.bay@zbw.eu)
  */
 class LoriServerBackendTest : DatabaseTest() {
-
-    private val backend = LoriServerBackend(
-        DatabaseConnector(
-            connection = dataSource.connection,
-            tracer = OpenTelemetry.noop().getTracer("de.zbw.business.lori.server.LoriServerBackendTest"),
-        ),
-        mockk(),
-    )
+    private val backend =
+        LoriServerBackend(
+            DatabaseConnector(
+                connectionPool = ConnectionPool(testDataSource),
+                tracer = OpenTelemetry.noop().getTracer("de.zbw.business.lori.server.LoriServerBackendTest"),
+            ),
+            mockk(),
+        )
 
     @BeforeClass
     fun fillDatabase() {
@@ -58,111 +60,118 @@ class LoriServerBackendTest : DatabaseTest() {
     }
 
     @Test
-    fun testRoundtrip() {
-        // given
-        val givenMetadataEntries = arrayOf(
-            TEST_METADATA.copy(metadataId = "roundtrip"),
-            TEST_METADATA.copy(metadataId = "no_rights"),
-        )
-        val rightAssignments = TEST_RIGHT to listOf(givenMetadataEntries[0].metadataId)
+    fun testRoundtrip() =
+        runBlocking {
+            // given
+            val givenMetadataEntries =
+                arrayOf(
+                    TEST_METADATA.copy(handle = "roundtrip"),
+                    TEST_METADATA.copy(handle = "no_rights"),
+                )
+            val rightAssignments = TEST_RIGHT to listOf(givenMetadataEntries[0].handle)
 
-        // when
-        backend.insertMetadataElements(givenMetadataEntries.toList())
-        val generatedRightId = backend.insertRightForMetadataIds(rightAssignments.first, rightAssignments.second)
-        val received = backend.getItemByMetadataId(givenMetadataEntries[0].metadataId)!!
+            // when
+            backend.insertMetadataElements(givenMetadataEntries.toList())
+            val generatedRightId = backend.insertRightForHandles(rightAssignments.first, rightAssignments.second)
+            val received = backend.getItemByHandle(givenMetadataEntries[0].handle)!!
 
-        // then
-        assertThat(received, `is`(Item(givenMetadataEntries[0], listOf(TEST_RIGHT.copy(rightId = generatedRightId)))))
+            // then
+            assertThat(received, `is`(Item(givenMetadataEntries[0], listOf(TEST_RIGHT.copy(rightId = generatedRightId)))))
 
-        // when
-        val receivedNoRights = backend.getItemByMetadataId(givenMetadataEntries[1].metadataId)!!
-        // then
-        assertThat(receivedNoRights, `is`(Item(givenMetadataEntries[1], emptyList())))
-    }
+            // when
+            val receivedNoRights = backend.getItemByHandle(givenMetadataEntries[1].handle)!!
+            // then
+            assertThat(receivedNoRights, `is`(Item(givenMetadataEntries[1], emptyList())))
+        }
 
     @Test
-    fun testGetList() {
-        // given
-        val givenMetadata = arrayOf(
-            TEST_METADATA.copy(metadataId = "zzz", publicationDate = LocalDate.of(1978, 1, 1)),
-            TEST_METADATA.copy(metadataId = "zzz2", publicationDate = LocalDate.of(1978, 1, 1)),
-            TEST_METADATA.copy(metadataId = "aaa"),
-            TEST_METADATA.copy(metadataId = "abb"),
-            TEST_METADATA.copy(metadataId = "acc"),
-        )
+    fun testGetList() =
+        runBlocking {
+            // given
+            val givenMetadata =
+                arrayOf(
+                    TEST_METADATA.copy(handle = "zzz", publicationDate = LocalDate.of(1978, 1, 1)),
+                    TEST_METADATA.copy(handle = "zzz2", publicationDate = LocalDate.of(1978, 1, 1)),
+                    TEST_METADATA.copy(handle = "aaa"),
+                    TEST_METADATA.copy(handle = "abb"),
+                    TEST_METADATA.copy(handle = "acc"),
+                )
 
-        backend.insertMetadataElements(givenMetadata.toList())
-        // when
-        val receivedItems: List<Item> = backend.getItemList(limit = 3, offset = 0)
-        // then
-        assertThat(
-            "Not equal",
-            receivedItems,
-            `is`(
-                listOf(
-                    Item(
+            backend.insertMetadataElements(givenMetadata.toList())
+            // when
+            val receivedItems: List<Item> = backend.getItemList(limit = 3, offset = 0)
+            // then
+            assertThat(
+                "Not equal",
+                receivedItems,
+                `is`(
+                    listOf(
+                        Item(
+                            givenMetadata[2],
+                            emptyList(),
+                        ),
+                        Item(
+                            givenMetadata[3],
+                            emptyList(),
+                        ),
+                        Item(
+                            givenMetadata[4],
+                            emptyList(),
+                        ),
+                    ),
+                ),
+            )
+
+            // no limit
+            val noLimit =
+                backend.getItemList(
+                    limit = 0,
+                    offset = 0,
+                )
+            assertThat(noLimit, `is`(emptyList()))
+
+            assertTrue(backend.metadataContainsHandle(givenMetadata[0].handle))
+
+            // when
+            val receivedMetadataElements: List<ItemMetadata> = backend.getMetadataList(3, 0)
+
+            // then
+            assertThat(
+                receivedMetadataElements,
+                `is`(
+                    listOf(
                         givenMetadata[2],
-                        emptyList(),
-                    ),
-                    Item(
                         givenMetadata[3],
-                        emptyList(),
-                    ),
-                    Item(
                         givenMetadata[4],
-                        emptyList(),
-                    )
-                )
+                    ),
+                ),
             )
-        )
-
-        // no limit
-        val noLimit = backend.getItemList(
-            limit = 0, offset = 0
-        )
-        assertThat(noLimit, `is`(emptyList()))
-
-        assertTrue(backend.metadataContainsId(givenMetadata[0].metadataId))
-
-        // when
-        val receivedMetadataElements: List<ItemMetadata> = backend.getMetadataList(3, 0)
-
-        // then
-        assertThat(
-            receivedMetadataElements,
-            `is`(
-                listOf(
-                    givenMetadata[2],
-                    givenMetadata[3],
-                    givenMetadata[4],
-                )
-            )
-        )
-        assertThat(backend.getMetadataList(1, 100), `is`(emptyList()))
-        assertThat(backend.getMetadataList(1, 100), `is`(emptyList()))
-        assertThat(backend.countMetadataEntries(), `is`(5))
-    }
+            assertThat(backend.getMetadataList(1, 100), `is`(emptyList()))
+            assertThat(backend.getMetadataList(1, 100), `is`(emptyList()))
+            assertThat(backend.countMetadataEntries(), `is`(5))
+        }
 
     @Test
-    fun testUpsert() {
-        // given
-        val expectedMetadata = TEST_METADATA.copy(band = "anotherband")
+    fun testUpsert() =
+        runBlocking {
+            // given
+            val expectedMetadata = TEST_METADATA.copy(band = "anotherband")
 
-        // when
-        backend.upsertMetadataElements(listOf(expectedMetadata))
-        val received = backend.getMetadataElementsByIds(listOf(expectedMetadata.metadataId))
+            // when
+            backend.upsertMetadataElements(listOf(expectedMetadata))
+            val received = backend.getMetadataElementsByIds(listOf(expectedMetadata.handle))
 
-        // then
-        assertThat(received, `is`(listOf(expectedMetadata)))
+            // then
+            assertThat(received, `is`(listOf(expectedMetadata)))
 
-        val expectedMetadata2 = TEST_METADATA.copy(band = "anotherband2")
-        // when
-        backend.upsertMetadataElements(listOf(expectedMetadata2))
-        val received2 = backend.getMetadataElementsByIds(listOf(expectedMetadata2.metadataId))
+            val expectedMetadata2 = TEST_METADATA.copy(band = "anotherband2")
+            // when
+            backend.upsertMetadataElements(listOf(expectedMetadata2))
+            val received2 = backend.getMetadataElementsByIds(listOf(expectedMetadata2.handle))
 
-        // then
-        assertThat(received2, `is`(listOf(expectedMetadata2)))
-    }
+            // then
+            assertThat(received2, `is`(listOf(expectedMetadata2)))
+        }
 
     @Test
     fun testHashString() {
@@ -176,228 +185,100 @@ class LoriServerBackendTest : DatabaseTest() {
         arrayOf(
             arrayOf(
                 "bllaaaa",
-                emptyList<SearchPair>(),
-                "no search key pair"
+                "",
+                "no search key pair",
             ),
             arrayOf(
                 "bllaaaa col:bar",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "bar",
-                    )
-                ),
-                "single case with random string"
+                "col:\"bar\"",
+                "single case with random string",
             ),
             arrayOf(
                 "col:bar",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "bar",
-                    )
-                ),
-                "single case no additional string"
+                "col:\"bar\"",
+                "single case no additional string",
             ),
             arrayOf(
                 "                col:bar                             ",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "bar",
-                    )
-                ),
-                "single case with whitespace"
+                "col:\"bar\"",
+                "single case with whitespace",
             ),
             arrayOf(
                 "col:bar zdb:foo",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "bar",
-                    ),
-                    SearchPair(
-                        SearchKey.ZDB_ID,
-                        "foo",
-                    ),
-                ),
-                "two search keys"
-            ),
-            arrayOf(
-                "col:'foo | bar'",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "foo | bar",
-                    )
-                ),
-                "multiple words quoted"
-            ),
-            arrayOf(
-                "col:'foobar'",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "foobar",
-                    ),
-                ),
-                "single word quoted"
+                "col:\"bar\",zdb:\"foo\"",
+                "two search keys",
             ),
             arrayOf(
                 "col:\"foobar\"",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "foobar",
-                    ),
-                ),
-                "single word doublequoted"
+                "col:\"foobar\"",
+                "single word quoted",
             ),
             arrayOf(
-                "            col:'foobar'           com:'foo & bar'",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "foobar",
-                    ),
-                    SearchPair(
-                        SearchKey.COMMUNITY,
-                        "foo & bar",
-                    ),
-                ),
-                "mutltiple and single words quoted with whitespaces"
+                "col:\"foobar\"",
+                "col:\"foobar\"",
+                "single word doublequoted",
+            ),
+            arrayOf(
+                "            col:\"foobar\"           com:\"foo & bar\"",
+                "col:\"foobar\",com:\"foo & bar\"",
+                "mutltiple and single words quoted with whitespaces",
             ),
             arrayOf(
                 "col:col-foo-bar",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "col-foo-bar",
-                    )
-                ),
-                "multiple words minus"
+                "col:\"col-foo-bar\"",
+                "multiple words minus",
             ),
             arrayOf(
-                "col:'col-foo-bar'",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "col-foo-bar",
-                    ),
-                ),
-                "multiple words quoted minus"
+                "col:\"col-foo-bar\"",
+                "col:\"col-foo-bar\"",
+                "multiple words quoted minus",
             ),
             arrayOf(
-                "col:'col-;:'",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "col-;\\:",
-                    ),
-                ),
-                "handle special characters"
+                "col:\"col-;:\"",
+                "col:\"col-;:\"",
+                "handle special characters",
             ),
             arrayOf(
-                "col:'(subject1 | subject2) & subject3'",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "(subject1 | subject2) & subject3",
-                    ),
-                ),
-                "with parentheses"
+                "ser:\"subject1 subject2 subject3 subject4 subject5\"",
+                "ser:\"subject1 subject2 subject3 subject4 subject5\"",
+                "direct access multiple words",
             ),
             arrayOf(
-                "col:\"(subject1 | subject2) & subject3\"",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "(subject1 | subject2) & subject3",
-                    ),
-                ),
-                "with parentheses and double quotes"
+                "tit:\"subject1 subject2 subject3 subject4 subject5\"",
+                "tit:\"subject1 subject2 subject3 subject4 subject5\"",
+                "TSVector access and multiple words",
             ),
             arrayOf(
-                "col:\"(anyNumberOfSp\$c!;,~ | subject2) & subject3\"",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "(anyNumberOfSp\$c!;,~ | subject2) & subject3",
-                    ),
-                ),
-                "with parentheses and double quotes"
+                "jah:\"2011-2013\"",
+                "jah:2011-2013",
+                "Publication Date from and to",
             ),
             arrayOf(
-                "col:\"(subject1 subject2 subject3 | subject4) & subject5\"",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "(subject1 & subject2 & subject3 | subject4) & subject5",
-                    ),
-                ),
-                "insert missing & with other logical operations"
+                "jah:\"2011-\"",
+                "jah:2011-",
+                "Publication Date from",
             ),
             arrayOf(
-                "col:\"subject1 subject2 subject3 subject4 subject5\"",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "subject1 & subject2 & subject3 & subject4 & subject5",
-                    ),
-                ),
-                "insert missing & standard case"
-            ),
-            arrayOf(
-                "col:\'subject1 subject2 subject3 subject4 subject5\'",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "subject1 & subject2 & subject3 & subject4 & subject5",
-                    ),
-                ),
-                "insert missing & standard case"
-            ),
-            arrayOf(
-                "col:\'subject1 & subject2 :\'",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "subject1 & subject2 & \\:",
-                    ),
-                ),
-                "escape : char",
-            ),
-            arrayOf(
-                "col:\'subject1 & subject2 \\:\'",
-                listOf(
-                    SearchPair(
-                        SearchKey.COLLECTION,
-                        "subject1 & subject2 & \\:",
-                    ),
-                ),
-                "escape : char but not doubled",
+                "jah:\"-2013\"",
+                "jah:-2013",
+                "Publication Date to",
             ),
         )
 
     @Test(dataProvider = DATA_FOR_SEARCH_KEY_PARSING)
     fun testParseSearchKeys(
         searchTerm: String,
-        expectedKeys: List<SearchPair>,
+        expectedKeys: String,
         description: String,
     ) {
-        val receivedPairs: List<SearchPair> = LoriServerBackend.parseValidSearchPairs(searchTerm)
-        receivedPairs.forEachIndexed { index, searchPair ->
-            assertThat(
-                description,
-                searchPair.values,
-                `is`(expectedKeys[index].values),
-            )
-            assertThat(
-                description,
-                searchPair.key,
-                `is`(expectedKeys[index].key),
-            )
-        }
+        val receivedPairs = LoriServerBackend.parseSearchTermToFilters(searchTerm)
+        assertThat(
+            description,
+            receivedPairs.joinToString(separator = ","),
+            `is`(
+                expectedKeys,
+            ),
+        )
     }
 
     @DataProvider(name = DATA_FOR_INVALID_SEARCH_KEY_PARSING)
@@ -406,70 +287,69 @@ class LoriServerBackendTest : DatabaseTest() {
             arrayOf(
                 "bllaaaa",
                 emptyList<String>(),
-                "no search key pair"
+                "no search key pair",
             ),
             arrayOf(
                 "moo:koo col:foobar cro:moobar",
                 listOf("moo", "cro"),
-                "two invalid keys"
+                "two invalid keys",
             ),
         )
 
-    @Test(dataProvider = DATA_FOR_INVALID_SEARCH_KEY_PARSING)
-    fun testParseInvalidSearchKeys(
-        searchTerm: String,
-        expectedKeys: List<String>,
-        description: String,
-    ) {
-        assertThat(description, LoriServerBackend.parseInvalidSearchKeys(searchTerm), `is`(expectedKeys))
-    }
-
     @Test
-    fun testSearchQuery() {
-        // given
-        val givenMetadataEntries = arrayOf(
-            TEST_METADATA.copy(metadataId = "search_test_1", zdbId = "zbdTest"),
-            TEST_METADATA.copy(metadataId = "search_test_2", zdbId = "zbdTest"),
-        )
-        val rightAssignments = TEST_RIGHT to listOf(givenMetadataEntries[0].metadataId)
-
-        backend.insertMetadataElements(givenMetadataEntries.toList())
-        val generatedRightId = backend.insertRightForMetadataIds(rightAssignments.first, rightAssignments.second)
-
-        // when
-        val (number, items) = backend.searchQuery(
-            "zdb:${givenMetadataEntries[0].zdbId!!}",
-            5,
-            0
-        )
-
-        // then
-        assertThat(number, `is`(2))
-        assertThat(
-            items.toSet(),
-            `is`(
-                setOf(
-                    Item(
-                        metadata = givenMetadataEntries[0],
-                        rights = listOf(TEST_RIGHT.copy(rightId = generatedRightId)),
-                    ),
-                    Item(
-                        metadata = givenMetadataEntries[1],
-                        rights = emptyList(),
-                    )
+    fun testSearchQuery() =
+        runBlocking {
+            // given
+            val givenMetadataEntries =
+                arrayOf(
+                    TEST_METADATA.copy(handle = "search_test_1", zdbIdJournal = "zbdTest"),
+                    TEST_METADATA.copy(handle = "search_test_2", zdbIdJournal = "zbdTest"),
                 )
-            )
-        )
+            val rightAssignments = TEST_RIGHT to listOf(givenMetadataEntries[0].handle)
 
-        // when
-        val (numberNoItem, itemsNoItem) = backend.searchQuery(
-            "zdb:NOT_IN_DATABASE_ID",
-            5,
-            0
-        )
-        assertThat(numberNoItem, `is`(0))
-        assertThat(itemsNoItem, `is`(emptyList()))
-    }
+            backend.insertMetadataElements(givenMetadataEntries.toList())
+            val generatedRightId = backend.insertRightForHandles(rightAssignments.first, rightAssignments.second)
+
+            // when
+            val (number, items) =
+                runBlocking {
+                    backend.searchQuery(
+                        "zdb:${givenMetadataEntries[0].zdbIdJournal!!}",
+                        5,
+                        0,
+                    )
+                }
+
+            // then
+            assertThat(number, `is`(2))
+            assertThat(
+                items.toSet(),
+                `is`(
+                    setOf(
+                        Item(
+                            metadata = givenMetadataEntries[0],
+                            rights = listOf(TEST_RIGHT.copy(rightId = generatedRightId)),
+                        ),
+                        Item(
+                            metadata = givenMetadataEntries[1],
+                            rights = emptyList(),
+                        ),
+                    ),
+                ),
+            )
+
+            // when
+            val (numberNoItem, itemsNoItem) =
+                runBlocking {
+                    backend.searchQuery(
+                        "zdb:NOT_IN_DATABASE_ID",
+                        5,
+                        0,
+                    )
+                }
+            assertThat(numberNoItem, `is`(0))
+            assertThat(itemsNoItem, `is`(emptyList()))
+        }
 
     @DataProvider(name = DATA_FOR_REMOVE_VALID_SEARCH_TOKEN)
     fun createDataForRemoveValidSearchToken() =
@@ -479,15 +359,15 @@ class LoriServerBackendTest : DatabaseTest() {
                 false,
             ),
             arrayOf(
-                "  foo:'bar baz' abc  bcd\t",
+                "  foo:\"bar baz\" abc  bcd\t",
                 true,
             ),
             arrayOf(
-                "  col:'bar'  \t  ",
+                "  col:\"bar\"  \t  ",
                 false,
             ),
             arrayOf(
-                "  baaaa col:'bar'  \t  ",
+                "  baaaa col:\"bar\"  \t  ",
                 true,
             ),
             arrayOf(
@@ -499,7 +379,7 @@ class LoriServerBackendTest : DatabaseTest() {
                 true,
             ),
             arrayOf(
-                "  col:'bar baz'  \t  ",
+                "  col:\"bar baz\"  \t  ",
                 false,
             ),
             arrayOf(
@@ -509,35 +389,15 @@ class LoriServerBackendTest : DatabaseTest() {
         )
 
     @Test(dataProvider = DATA_FOR_REMOVE_VALID_SEARCH_TOKEN)
-    fun testRemoveValidSearchToken(input: String, expected: Boolean) {
+    fun testRemoveValidSearchToken(
+        input: String,
+        expected: Boolean,
+    ) {
         assertThat(
             "$input was not correctly identified",
             LoriServerBackend.hasSearchTokensWithNoKey(input),
             `is`(expected),
         )
-    }
-
-    @Test
-    fun testSearchKeyConversion() {
-        val given = listOf(
-            SearchPair(SearchKey.TITLE, "foobar & baz"),
-            SearchPair(SearchKey.COLLECTION, "col1"),
-            SearchPair(SearchKey.COMMUNITY, "com1"),
-            SearchPair(SearchKey.ZDB_ID, "zdb1"),
-        )
-        val received = LoriServerBackend.parseValidSearchPairs(
-            LoriServerBackend.searchPairsToString(given)
-        )
-        received.forEachIndexed { index, searchPair ->
-            assertThat(
-                searchPair.values,
-                `is`(given[index].values),
-            )
-            assertThat(
-                searchPair.key,
-                `is`(given[index].key),
-            )
-        }
     }
 
     @DataProvider(name = DATA_FOR_CHECK_RIGHT_CONFLICTS)
@@ -682,7 +542,7 @@ class LoriServerBackendTest : DatabaseTest() {
                 ),
                 TEST_RIGHT.copy(
                     startDate = LocalDate.of(2026, 6, 2),
-                    endDate = null
+                    endDate = null,
                 ),
                 true,
                 "Invalid overlap.",
@@ -690,7 +550,7 @@ class LoriServerBackendTest : DatabaseTest() {
             arrayOf(
                 TEST_RIGHT.copy(
                     startDate = LocalDate.of(2026, 6, 2),
-                    endDate = null
+                    endDate = null,
                 ),
                 TEST_RIGHT.copy(
                     startDate = LocalDate.of(2026, 6, 1),
@@ -706,7 +566,7 @@ class LoriServerBackendTest : DatabaseTest() {
                 ),
                 TEST_RIGHT.copy(
                     startDate = LocalDate.of(2026, 6, 2),
-                    endDate = null
+                    endDate = null,
                 ),
                 false,
                 "No overlap.",
@@ -728,49 +588,51 @@ class LoriServerBackendTest : DatabaseTest() {
     }
 
     @Test
-    fun testInsertItemEntry() {
-        val givenMetadata = TEST_METADATA
-        val givenRight1 = TEST_RIGHT.copy(rightId = "1")
-        val givenRight2 = TEST_RIGHT.copy(rightId = "2")
-        val givenRight3 = TEST_RIGHT.copy(rightId = "3")
+    fun testInsertItemEntry() =
+        runBlocking {
+            val givenMetadata = TEST_METADATA
+            val givenRight1 = TEST_RIGHT.copy(rightId = "1")
+            val givenRight2 = TEST_RIGHT.copy(rightId = "2")
+            val givenRight3 = TEST_RIGHT.copy(rightId = "3")
 
-        backend.insertMetadataElement(givenMetadata)
-        backend.insertRight(givenRight1)
-        backend.insertRight(givenRight2)
-        backend.insertRight(givenRight3)
+            backend.insertMetadataElement(givenMetadata)
+            backend.insertRight(givenRight1)
+            backend.insertRight(givenRight2)
+            backend.insertRight(givenRight3)
 
-        backend.insertItemEntry(givenMetadata.metadataId, givenRight1.rightId!!)
+            backend.insertItemEntry(givenMetadata.handle, givenRight1.rightId!!)
 
-        // Insert first conflict, no deletion
-        when (backend.insertItemEntry(givenMetadata.metadataId, givenRight2.rightId!!)) {
-            is Either.Left -> {
-                // Error is expected due to conflict
+            // Insert first conflict, no deletion
+            when (backend.insertItemEntry(givenMetadata.handle, givenRight2.rightId!!)) {
+                is Either.Left -> {
+                    // Error is expected due to conflict
+                }
+
+                is Either.Right -> {
+                    Assert.fail("An error should be raised due to a given conflict.")
+                }
             }
 
-            is Either.Right -> {
-                Assert.fail("An error should be raised due to a given conflict.")
+            when (backend.insertItemEntry(givenMetadata.handle, givenRight3.rightId!!, true)) {
+                is Either.Left -> {
+                    // Error is expected due to conflict
+                }
+
+                is Either.Right -> {
+                    Assert.fail("An error should be raised due to a given conflict.")
+                }
             }
+
+            val existingRights =
+                backend
+                    .getRightsByIds(listOf(givenRight1.rightId!!, givenRight2.rightId!!, givenRight3.rightId!!))
+                    .map { it.rightId }
+                    .toSet()
+            assertThat(
+                existingRights,
+                `is`(setOf(givenRight1.rightId!!, givenRight2.rightId!!)),
+            )
         }
-
-        when (backend.insertItemEntry(givenMetadata.metadataId, givenRight3.rightId!!, true)) {
-            is Either.Left -> {
-                // Error is expected due to conflict
-            }
-
-            is Either.Right -> {
-                Assert.fail("An error should be raised due to a given conflict.")
-            }
-        }
-
-        val existingRights =
-            backend.getRightsByIds(listOf(givenRight1.rightId!!, givenRight2.rightId!!, givenRight3.rightId!!))
-                .map { it.rightId }
-                .toSet()
-        assertThat(
-            existingRights,
-            `is`(setOf(givenRight1.rightId!!, givenRight2.rightId!!))
-        )
-    }
 
     @DataProvider(name = DATA_FOR_FIND_RIGHT_CONFLICTS)
     fun createDataForFindItemsWithConflicts() =
@@ -780,7 +642,7 @@ class LoriServerBackendTest : DatabaseTest() {
                     Item(
                         metadata = TEST_METADATA,
                         rights = listOf(TEST_RIGHT),
-                    )
+                    ),
                 ),
                 TEST_RIGHT,
                 emptySet<Item>(),
@@ -792,14 +654,14 @@ class LoriServerBackendTest : DatabaseTest() {
                     Item(
                         metadata = TEST_METADATA,
                         rights = listOf(TEST_RIGHT),
-                    )
+                    ),
                 ),
                 TEST_RIGHT.copy(rightId = "testConflict"),
                 setOf(
                     Item(
                         metadata = TEST_METADATA,
                         rights = listOf(TEST_RIGHT),
-                    )
+                    ),
                 ),
                 1,
                 "Find duplicate",
@@ -811,14 +673,14 @@ class LoriServerBackendTest : DatabaseTest() {
                         rights = listOf(TEST_RIGHT),
                     ),
                     Item(
-                        metadata = TEST_METADATA.copy(metadataId = "metadata2"),
+                        metadata = TEST_METADATA.copy(handle = "metadata2"),
                         rights = listOf(TEST_RIGHT, TEST_RIGHT.copy(rightId = "right2")),
                     ),
                 ),
                 TEST_RIGHT.copy(
                     rightId = "testConflict",
                     startDate = LocalDate.MIN,
-                    endDate = LocalDate.MIN.plusDays(1)
+                    endDate = LocalDate.MIN.plusDays(1),
                 ),
                 emptySet<Item>(),
                 0,
@@ -834,19 +696,19 @@ class LoriServerBackendTest : DatabaseTest() {
         expectedErrorCount: Int,
         reason: String,
     ) {
-        val received: Pair<Set<Item>, List<RightError>> = LoriServerBackend.findItemsWithConflicts(
-            searchResults,
-            rightConflictToCheck,
-            1,
+        val received: Map<Item, List<RightError>> =
+            LoriServerBackend.findItemsWithConflicts(
+                searchResults,
+                rightConflictToCheck,
+            )
+        assertThat(
+            reason,
+            received.keys,
+            `is`(expected),
         )
         assertThat(
             reason,
-            received.first,
-            `is`(expected)
-        )
-        assertThat(
-            reason,
-            received.second.size,
+            received.values.flatten().size,
             `is`(expectedErrorCount),
         )
     }
@@ -858,74 +720,83 @@ class LoriServerBackendTest : DatabaseTest() {
         const val DATA_FOR_SEARCH_KEY_PARSING = "DATA_FOR_SEARCH_KEY_PARSING"
         const val DATA_FOR_REMOVE_VALID_SEARCH_TOKEN = "DATA_FOR_REMOVE_VALID_SEARCH_TOKEN"
 
-        val NOW: OffsetDateTime = OffsetDateTime.of(
-            2022,
-            3,
-            1,
-            1,
-            1,
-            0,
-            0,
-            ZoneOffset.UTC,
-        )!!
+        val NOW: OffsetDateTime =
+            OffsetDateTime.of(
+                2022,
+                3,
+                1,
+                1,
+                1,
+                0,
+                0,
+                ZoneOffset.UTC,
+            )!!
 
         private val TODAY: LocalDate = LocalDate.of(2022, 3, 1)
-        val TEST_METADATA = ItemMetadata(
-            metadataId = "that-test",
-            author = "Colbjørnsen, Terje",
-            band = "band",
-            collectionHandle = "colHandle",
-            collectionName = "collectionName",
-            communityHandle = "comHandle",
-            communityName = "communityName",
-            createdBy = "user1",
-            createdOn = NOW,
-            doi = "doi:example.org",
-            handle = "hdl:example.handle.net",
-            isbn = "1234567890123",
-            issn = "123456",
-            lastUpdatedBy = "user2",
-            lastUpdatedOn = NOW,
-            paketSigel = "sigel",
-            ppn = "ppn",
-            publicationType = PublicationType.ARTICLE,
-            publicationDate = LocalDate.of(2022, 9, 26),
-            rightsK10plus = "some rights",
-            storageDate = NOW.minusDays(3),
-            subCommunitiesHandles = listOf("111", "112"),
-            title = "Important title",
-            titleJournal = null,
-            titleSeries = null,
-            zdbId = null,
-        )
+        val TEST_METADATA =
+            ItemMetadata(
+                author = "Colbjørnsen, Terje",
+                band = "band",
+                collectionHandle = "colHandle",
+                collectionName = "collectionName",
+                communityHandle = "comHandle",
+                communityName = "communityName",
+                createdBy = "user1",
+                createdOn = NOW,
+                doi = "doi:example.org",
+                handle = "hdl:example.handle.net",
+                isbn = "1234567890123",
+                issn = "123456",
+                isPartOfSeries = "series",
+                lastUpdatedBy = "user2",
+                lastUpdatedOn = NOW,
+                licenceUrl = "https://creativecommons.org/licenses/by-sa/4.0/legalcode.de",
+                licenceUrlFilter = "by-sa/4.0/legalcode.de",
+                paketSigel = "sigel",
+                ppn = "ppn",
+                publicationType = PublicationType.ARTICLE,
+                publicationDate = LocalDate.of(2022, 9, 26),
+                rightsK10plus = "some rights",
+                storageDate = NOW.minusDays(3),
+                subCommunityHandle = "11159/1114",
+                subCommunityName = "Department",
+                title = "Important title",
+                titleJournal = null,
+                titleSeries = null,
+                zdbIdJournal = null,
+                zdbIdSeries = null,
+            )
 
-        private val TEST_RIGHT = ItemRight(
-            rightId = "12",
-            accessState = AccessState.OPEN,
-            authorRightException = true,
-            basisAccessState = BasisAccessState.LICENCE_CONTRACT,
-            basisStorage = BasisStorage.AUTHOR_RIGHT_EXCEPTION,
-            createdBy = "user1",
-            createdOn = NOW,
-            endDate = TODAY,
-            groupIds = emptyList(),
-            lastAppliedOn = null,
-            lastUpdatedBy = "user2",
-            lastUpdatedOn = NOW,
-            licenceContract = "some contract",
-            nonStandardOpenContentLicence = true,
-            nonStandardOpenContentLicenceURL = "https://nonstandardoclurl.de",
-            notesGeneral = "Some general notes",
-            notesFormalRules = "Some formal rule notes",
-            notesProcessDocumentation = "Some process documentation",
-            notesManagementRelated = "Some management related notes",
-            openContentLicence = "some licence",
-            restrictedOpenContentLicence = false,
-            startDate = TODAY.minusDays(1),
-            templateDescription = "descritpion",
-            templateId = null,
-            templateName = "name",
-            zbwUserAgreement = true,
-        )
+        private val TEST_RIGHT =
+            ItemRight(
+                rightId = "12",
+                accessState = AccessState.OPEN,
+                authorRightException = true,
+                basisAccessState = BasisAccessState.LICENCE_CONTRACT,
+                basisStorage = BasisStorage.AUTHOR_RIGHT_EXCEPTION,
+                createdBy = "user1",
+                createdOn = NOW,
+                endDate = TODAY,
+                exceptionFrom = null,
+                groups = emptyList(),
+                groupIds = emptyList(),
+                isTemplate = false,
+                lastAppliedOn = null,
+                lastUpdatedBy = "user2",
+                lastUpdatedOn = NOW,
+                licenceContract = "some contract",
+                nonStandardOpenContentLicence = true,
+                nonStandardOpenContentLicenceURL = "https://nonstandardoclurl.de",
+                notesGeneral = "Some general notes",
+                notesFormalRules = "Some formal rule notes",
+                notesProcessDocumentation = "Some process documentation",
+                notesManagementRelated = "Some management related notes",
+                openContentLicence = "some licence",
+                restrictedOpenContentLicence = false,
+                startDate = TODAY.minusDays(1),
+                templateDescription = "descritpion",
+                templateName = null,
+                zbwUserAgreement = true,
+            )
     }
 }

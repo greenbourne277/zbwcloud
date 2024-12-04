@@ -1,13 +1,12 @@
 package de.zbw.api.lori.server.type
 
 import de.zbw.api.lori.server.route.QueryParameterParser
+import de.zbw.api.lori.server.utils.RestConverterUtil.prepareLicenceUrlFilter
 import de.zbw.business.lori.server.EndDateFilter
-import de.zbw.business.lori.server.LoriServerBackend
+import de.zbw.business.lori.server.LicenceUrlFilter
 import de.zbw.business.lori.server.NoRightInformationFilter
 import de.zbw.business.lori.server.PublicationDateFilter
 import de.zbw.business.lori.server.RightValidOnFilter
-import de.zbw.business.lori.server.SearchKey
-import de.zbw.business.lori.server.SearchPair
 import de.zbw.business.lori.server.StartDateFilter
 import de.zbw.business.lori.server.type.AccessState
 import de.zbw.business.lori.server.type.BasisAccessState
@@ -15,6 +14,7 @@ import de.zbw.business.lori.server.type.BasisStorage
 import de.zbw.business.lori.server.type.Bookmark
 import de.zbw.business.lori.server.type.BookmarkTemplate
 import de.zbw.business.lori.server.type.ConflictType
+import de.zbw.business.lori.server.type.ErrorQueryResult
 import de.zbw.business.lori.server.type.Group
 import de.zbw.business.lori.server.type.GroupEntry
 import de.zbw.business.lori.server.type.Item
@@ -32,22 +32,26 @@ import de.zbw.lori.model.BookmarkTemplateRest
 import de.zbw.lori.model.ConflictTypeRest
 import de.zbw.lori.model.FilterPublicationDateRest
 import de.zbw.lori.model.GroupRest
+import de.zbw.lori.model.IsPartOfSeriesCountRest
 import de.zbw.lori.model.ItemInformation
 import de.zbw.lori.model.ItemRest
+import de.zbw.lori.model.LicenceUrlCountRest
 import de.zbw.lori.model.MetadataRest
+import de.zbw.lori.model.OrganisationToIp
 import de.zbw.lori.model.PaketSigelWithCountRest
 import de.zbw.lori.model.PublicationTypeRest
 import de.zbw.lori.model.PublicationTypeWithCountRest
+import de.zbw.lori.model.RightErrorInformationRest
 import de.zbw.lori.model.RightErrorRest
 import de.zbw.lori.model.RightRest
-import de.zbw.lori.model.SearchKeyRest
-import de.zbw.lori.model.TemplateIdWithCountRest
+import de.zbw.lori.model.TemplateNameWithCountRest
 import de.zbw.lori.model.UserPermissionRest
 import de.zbw.lori.model.UserSessionRest
 import de.zbw.lori.model.ZdbIdWithCountRest
 import org.apache.commons.csv.CSVFormat
 import org.apache.commons.csv.CSVParser
 import org.apache.logging.log4j.LogManager
+import org.apache.logging.log4j.Logger
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
@@ -73,12 +77,21 @@ fun Item.toRest() =
 
 fun Group.toRest() =
     GroupRest(
-        name = this.name,
+        groupId = this.groupId,
         description = this.description,
-        ipAddresses = this.entries.joinToString(separator = "\n") {
-            "${it.organisationName}${RestConverter.CSV_DELIMITER}${it.ipAddresses}"
-        },
+        allowedAddressesRaw =
+            this.entries.joinToString(separator = "\n") {
+                "${it.organisationName}${RestConverter.CSV_DELIMITER}${it.ipAddresses}"
+            },
         hasCSVHeader = false,
+        title = title,
+        allowedAddresses =
+            this.entries.map {
+                OrganisationToIp(
+                    ipv4Allowed = it.ipAddresses,
+                    organisation = it.organisationName,
+                )
+            },
     )
 
 /**
@@ -88,17 +101,20 @@ fun Group.toRest() =
  */
 fun GroupRest.toBusiness() =
     Group(
-        name = this.name,
+        groupId = this.groupId,
         description = this.description,
-        entries = RestConverter.parseToGroup(
-            this.hasCSVHeader,
-            this.ipAddresses
-        )
+        entries =
+            this.allowedAddressesRaw?.let {
+                RestConverter.parseToGroup(
+                    this.hasCSVHeader,
+                    it,
+                )
+            } ?: emptyList(),
+        title = title,
     )
 
 fun MetadataRest.toBusiness() =
     ItemMetadata(
-        metadataId = metadataId,
         author = author,
         band = band,
         collectionHandle = collectionHandle,
@@ -111,24 +127,28 @@ fun MetadataRest.toBusiness() =
         handle = handle,
         isbn = isbn,
         issn = issn,
+        isPartOfSeries = isPartOfSeries,
         lastUpdatedBy = lastUpdatedBy,
         lastUpdatedOn = lastUpdatedOn,
+        licenceUrl = licenceUrl,
+        licenceUrlFilter = prepareLicenceUrlFilter(licenceUrl),
         paketSigel = paketSigel,
         ppn = ppn,
         publicationType = publicationType.toBusiness(),
         publicationDate = publicationDate,
         rightsK10plus = rightsK10plus,
-        subCommunitiesHandles = subCommunitiesHandles,
+        subCommunityHandle = subCommunityHandle,
+        subCommunityName = subCommunityName,
         storageDate = storageDate,
         title = title,
         titleJournal = titleJournal,
         titleSeries = titleSeries,
-        zdbId = zdbId,
+        zdbIdJournal = zdbIdJournal,
+        zdbIdSeries = zdbIdSeries,
     )
 
 fun ItemMetadata.toRest(): MetadataRest =
     MetadataRest(
-        metadataId = metadataId,
         author = author,
         band = band,
         collectionHandle = collectionHandle,
@@ -141,19 +161,23 @@ fun ItemMetadata.toRest(): MetadataRest =
         handle = handle,
         isbn = isbn,
         issn = issn,
+        isPartOfSeries = isPartOfSeries,
         lastUpdatedBy = lastUpdatedBy,
         lastUpdatedOn = lastUpdatedOn,
+        licenceUrl = licenceUrl,
         paketSigel = paketSigel,
         ppn = ppn,
         publicationType = publicationType.toRest(),
         publicationDate = publicationDate,
         rightsK10plus = rightsK10plus,
         storageDate = storageDate,
-        subCommunitiesHandles = subCommunitiesHandles,
+        subCommunityHandle = subCommunityHandle,
+        subCommunityName = subCommunityName,
         title = title,
         titleJournal = titleJournal,
         titleSeries = titleSeries,
-        zdbId = zdbId,
+        zdbIdJournal = zdbIdJournal,
+        zdbIdSeries = zdbIdSeries,
     )
 
 fun RightRest.toBusiness(): ItemRight =
@@ -166,7 +190,10 @@ fun RightRest.toBusiness(): ItemRight =
         createdBy = createdBy,
         createdOn = createdOn,
         endDate = endDate,
+        exceptionFrom = exceptionFrom,
+        groups = null,
         groupIds = groupIds,
+        isTemplate = isTemplate,
         lastAppliedOn = lastAppliedOn,
         lastUpdatedBy = lastUpdatedBy,
         lastUpdatedOn = lastUpdatedOn,
@@ -181,7 +208,6 @@ fun RightRest.toBusiness(): ItemRight =
         restrictedOpenContentLicence = restrictedOpenContentLicence,
         startDate = startDate,
         templateDescription = templateDescription,
-        templateId = templateId,
         templateName = templateName,
         zbwUserAgreement = zbwUserAgreement,
     )
@@ -196,7 +222,10 @@ fun ItemRight.toRest(): RightRest =
         createdBy = createdBy,
         createdOn = createdOn,
         endDate = endDate,
-        groupIds = groupIds,
+        exceptionFrom = exceptionFrom,
+        groupIds = groups?.map { it.groupId },
+        groups = groups?.map { it.toRest() },
+        isTemplate = isTemplate,
         lastAppliedOn = lastAppliedOn,
         lastUpdatedBy = lastUpdatedBy,
         lastUpdatedOn = lastUpdatedOn,
@@ -210,7 +239,6 @@ fun ItemRight.toRest(): RightRest =
         openContentLicence = openContentLicence,
         restrictedOpenContentLicence = restrictedOpenContentLicence,
         startDate = startDate,
-        templateId = templateId,
         templateDescription = templateDescription,
         templateName = templateName,
         zbwUserAgreement = zbwUserAgreement,
@@ -232,118 +260,166 @@ internal fun AccessState.toRest(): AccessStateRest =
 
 internal fun RightRest.BasisAccessState.toBusiness(): BasisAccessState =
     when (this) {
-        RightRest.BasisAccessState.authorRightException -> BasisAccessState.AUTHOR_RIGHT_EXCEPTION
-        RightRest.BasisAccessState.licenceContract -> BasisAccessState.LICENCE_CONTRACT
-        RightRest.BasisAccessState.licenceContractOa -> BasisAccessState.LICENCE_CONTRACT_OA
-        RightRest.BasisAccessState.openContentLicence -> BasisAccessState.OPEN_CONTENT_LICENCE
-        RightRest.BasisAccessState.userAgreement -> BasisAccessState.USER_AGREEMENT
-        RightRest.BasisAccessState.zbwPolicy -> BasisAccessState.ZBW_POLICY
+        RightRest.BasisAccessState.authorrightexception -> BasisAccessState.AUTHOR_RIGHT_EXCEPTION
+        RightRest.BasisAccessState.licencecontract -> BasisAccessState.LICENCE_CONTRACT
+        RightRest.BasisAccessState.licencecontractoa -> BasisAccessState.LICENCE_CONTRACT_OA
+        RightRest.BasisAccessState.opencontentlicence -> BasisAccessState.OPEN_CONTENT_LICENCE
+        RightRest.BasisAccessState.useragreement -> BasisAccessState.USER_AGREEMENT
+        RightRest.BasisAccessState.zbwpolicy -> BasisAccessState.ZBW_POLICY
     }
 
 internal fun BasisAccessState.toRest(): RightRest.BasisAccessState =
     when (this) {
-        BasisAccessState.AUTHOR_RIGHT_EXCEPTION -> RightRest.BasisAccessState.authorRightException
-        BasisAccessState.LICENCE_CONTRACT -> RightRest.BasisAccessState.licenceContract
-        BasisAccessState.LICENCE_CONTRACT_OA -> RightRest.BasisAccessState.licenceContractOa
-        BasisAccessState.OPEN_CONTENT_LICENCE -> RightRest.BasisAccessState.openContentLicence
-        BasisAccessState.USER_AGREEMENT -> RightRest.BasisAccessState.userAgreement
-        BasisAccessState.ZBW_POLICY -> RightRest.BasisAccessState.zbwPolicy
+        BasisAccessState.AUTHOR_RIGHT_EXCEPTION -> RightRest.BasisAccessState.authorrightexception
+        BasisAccessState.LICENCE_CONTRACT -> RightRest.BasisAccessState.licencecontract
+        BasisAccessState.LICENCE_CONTRACT_OA -> RightRest.BasisAccessState.licencecontractoa
+        BasisAccessState.OPEN_CONTENT_LICENCE -> RightRest.BasisAccessState.opencontentlicence
+        BasisAccessState.USER_AGREEMENT -> RightRest.BasisAccessState.useragreement
+        BasisAccessState.ZBW_POLICY -> RightRest.BasisAccessState.zbwpolicy
     }
 
 internal fun RightRest.BasisStorage.toBusiness(): BasisStorage =
     when (this) {
-        RightRest.BasisStorage.authorRightException -> BasisStorage.AUTHOR_RIGHT_EXCEPTION
-        RightRest.BasisStorage.licenceContract -> BasisStorage.LICENCE_CONTRACT
-        RightRest.BasisStorage.openContentLicence -> BasisStorage.LICENCE_CONTRACT
-        RightRest.BasisStorage.userAgreement -> BasisStorage.USER_AGREEMENT
-        RightRest.BasisStorage.zbwPolicyRestricted -> BasisStorage.ZBW_POLICY_RESTRICTED
-        RightRest.BasisStorage.zbwPolicyUnanswered -> BasisStorage.ZBW_POLICY_UNANSWERED
+        RightRest.BasisStorage.authorrightexception -> BasisStorage.AUTHOR_RIGHT_EXCEPTION
+        RightRest.BasisStorage.licencecontract -> BasisStorage.LICENCE_CONTRACT
+        RightRest.BasisStorage.opencontentlicence -> BasisStorage.LICENCE_CONTRACT
+        RightRest.BasisStorage.useragreement -> BasisStorage.USER_AGREEMENT
+        RightRest.BasisStorage.zbwpolicyrestricted -> BasisStorage.ZBW_POLICY_RESTRICTED
+        RightRest.BasisStorage.zbwpolicyunanswered -> BasisStorage.ZBW_POLICY_UNANSWERED
     }
 
 internal fun BasisStorage.toRest(): RightRest.BasisStorage =
     when (this) {
-        BasisStorage.AUTHOR_RIGHT_EXCEPTION -> RightRest.BasisStorage.authorRightException
-        BasisStorage.LICENCE_CONTRACT -> RightRest.BasisStorage.licenceContract
-        BasisStorage.OPEN_CONTENT_LICENCE -> RightRest.BasisStorage.openContentLicence
-        BasisStorage.USER_AGREEMENT -> RightRest.BasisStorage.userAgreement
-        BasisStorage.ZBW_POLICY_RESTRICTED -> RightRest.BasisStorage.zbwPolicyRestricted
-        BasisStorage.ZBW_POLICY_UNANSWERED -> RightRest.BasisStorage.zbwPolicyUnanswered
+        BasisStorage.AUTHOR_RIGHT_EXCEPTION -> RightRest.BasisStorage.authorrightexception
+        BasisStorage.LICENCE_CONTRACT -> RightRest.BasisStorage.licencecontract
+        BasisStorage.OPEN_CONTENT_LICENCE -> RightRest.BasisStorage.opencontentlicence
+        BasisStorage.USER_AGREEMENT -> RightRest.BasisStorage.useragreement
+        BasisStorage.ZBW_POLICY_RESTRICTED -> RightRest.BasisStorage.zbwpolicyrestricted
+        BasisStorage.ZBW_POLICY_UNANSWERED -> RightRest.BasisStorage.zbwpolicyunanswered
     }
 
 internal fun PublicationTypeRest.toBusiness(): PublicationType =
     when (this) {
         PublicationTypeRest.article -> PublicationType.ARTICLE
         PublicationTypeRest.book -> PublicationType.BOOK
-        PublicationTypeRest.bookPart -> PublicationType.BOOK_PART
-        PublicationTypeRest.periodicalPart -> PublicationType.PERIODICAL_PART
-        PublicationTypeRest.workingPaper -> PublicationType.WORKING_PAPER
-        PublicationTypeRest.researchReport -> PublicationType.RESEARCH_REPORT
-        PublicationTypeRest.proceedings -> PublicationType.PROCEEDINGS
+        PublicationTypeRest.book_part -> PublicationType.BOOK_PART
+        PublicationTypeRest.periodical_part -> PublicationType.PERIODICAL_PART
+        PublicationTypeRest.working_paper -> PublicationType.WORKING_PAPER
+        PublicationTypeRest.research_report -> PublicationType.RESEARCH_REPORT
+        PublicationTypeRest.proceeding -> PublicationType.PROCEEDING
         PublicationTypeRest.thesis -> PublicationType.THESIS
-        PublicationTypeRest.conferencePaper -> PublicationType.CONFERENCE_PAPER
+        PublicationTypeRest.conference_paper -> PublicationType.CONFERENCE_PAPER
+        PublicationTypeRest.other -> PublicationType.OTHER
     }
 
 internal fun PublicationType.toRest(): PublicationTypeRest =
     when (this) {
         PublicationType.ARTICLE -> PublicationTypeRest.article
         PublicationType.BOOK -> PublicationTypeRest.book
-        PublicationType.BOOK_PART -> PublicationTypeRest.bookPart
-        PublicationType.CONFERENCE_PAPER -> PublicationTypeRest.conferencePaper
-        PublicationType.PERIODICAL_PART -> PublicationTypeRest.periodicalPart
-        PublicationType.WORKING_PAPER -> PublicationTypeRest.workingPaper
-        PublicationType.RESEARCH_REPORT -> PublicationTypeRest.researchReport
-        PublicationType.PROCEEDINGS -> PublicationTypeRest.proceedings
+        PublicationType.BOOK_PART -> PublicationTypeRest.book_part
+        PublicationType.CONFERENCE_PAPER -> PublicationTypeRest.conference_paper
+        PublicationType.PERIODICAL_PART -> PublicationTypeRest.periodical_part
+        PublicationType.WORKING_PAPER -> PublicationTypeRest.working_paper
+        PublicationType.RESEARCH_REPORT -> PublicationTypeRest.research_report
+        PublicationType.PROCEEDING -> PublicationTypeRest.proceeding
         PublicationType.THESIS -> PublicationTypeRest.thesis
+        PublicationType.OTHER -> PublicationTypeRest.other
     }
 
-fun DAItem.toBusiness(): ItemMetadata? {
+fun DAItem.toBusiness(
+    directParentCommunityId: Int,
+    logger: Logger,
+): ItemMetadata? {
     val metadata = this.metadata
     val handle = RestConverter.extractMetadata("dc.identifier.uri", metadata)
-    val publicationType = RestConverter.extractMetadata("dc.type", metadata)?.let {
-        PublicationType.valueOf(it.uppercase().replace(oldChar = ' ', newChar = '_'))
-    }
+    val publicationType =
+        try {
+            RestConverter.extractMetadata("dc.type", metadata)?.let {
+                PublicationType.valueOf(
+                    it
+                        .uppercase()
+                        .replace(oldChar = ' ', newChar = '_')
+                        .replace("PROCEEDINGS", "PROCEEDING"),
+                )
+            }
+        } catch (iae: IllegalArgumentException) {
+            logger.error("Unknown PublicationType found for ${this.id}")
+            throw iae
+        }
     val publicationDate = RestConverter.extractMetadata("dc.date.issued", metadata)
     val title = RestConverter.extractMetadata("dc.title", metadata)
 
     return if (
         handle == null ||
-        publicationDate == null ||
         publicationType == null ||
         title == null
     ) {
+        logger.warn("Required field missing for metadata: ${this.metadata}")
         null
     } else {
+        var subDACommunity: DACommunity? = null
+        val parentDACommunity: DACommunity?
+        when (this.parentCommunityList.size) {
+            2 -> {
+                subDACommunity = this.parentCommunityList.firstOrNull { it.id == directParentCommunityId }
+                parentDACommunity = this.parentCommunityList.firstOrNull { it.id != directParentCommunityId }
+            }
+
+            1 -> {
+                parentDACommunity = this.parentCommunityList.firstOrNull()
+            }
+
+            else -> {
+                // This case should not happen. If it does however, a warning will be printed and the item will be irgnored for now.
+                logger.warn("Invalid numbers of parent communities (should be 1 or 2): Handle ${this.handle}")
+                return null
+            }
+        }
+        val licenceUrl = RestConverter.extractMetadata("dc.rights.license", metadata)
         ItemMetadata(
-            metadataId = this.id.toString(),
             author = RestConverter.extractMetadata("dc.contributor.author", metadata),
-            band = null, // Not in DA yet
-            collectionHandle = this.parentCollection?.handle,
+            // Not in DA yet
+            band = null,
+            collectionHandle =
+                this.parentCollection?.handle?.let {
+                    RestConverter.parseHandle(it)
+                },
             collectionName = this.parentCollection?.name,
-            communityHandle = this.parentCommunityList.takeIf { it.isNotEmpty() }?.first()?.handle,
-            communityName = this.parentCommunityList.takeIf { it.isNotEmpty() }?.first()?.name,
+            communityHandle =
+                parentDACommunity?.handle?.let {
+                    RestConverter.parseHandle(it)
+                },
+            communityName = parentDACommunity?.name,
             createdBy = null,
             createdOn = null,
             doi = RestConverter.extractMetadata("dc.identifier.pi", metadata),
-            handle = handle,
+            handle = RestConverter.parseHandle(handle),
             isbn = RestConverter.extractMetadata("dc.identifier.isbn", metadata),
             issn = RestConverter.extractMetadata("dc.identifier.issn", metadata),
+            isPartOfSeries = RestConverter.extractMetadata("dc.relation.ispartofseries", metadata),
             lastUpdatedBy = null,
             lastUpdatedOn = null,
+            licenceUrl = licenceUrl,
+            licenceUrlFilter = prepareLicenceUrlFilter(licenceUrl),
             paketSigel = RestConverter.extractMetadata("dc.identifier.packageid", metadata),
             ppn = RestConverter.extractMetadata("dc.identifier.ppn", metadata),
             publicationType = publicationType,
-            publicationDate = RestConverter.parseToDate(publicationDate),
+            publicationDate = publicationDate?.let { RestConverter.parseToDate(it) },
             rightsK10plus = RestConverter.extractMetadata("dc.rights", metadata),
-            subCommunitiesHandles = this
-                .parentCommunityList
-                .map { parent -> parent.subcommunities?.mapNotNull { it.handle } ?: emptyList() }
-                .flatten(),
-            storageDate = RestConverter.extractMetadata("dc.date.accessioned", metadata)
-                ?.let { OffsetDateTime.parse(it) },
+            subCommunityHandle =
+                subDACommunity?.handle?.let {
+                    RestConverter.parseHandle(it)
+                },
+            subCommunityName = subDACommunity?.name,
+            storageDate =
+                RestConverter
+                    .extractMetadata("dc.date.accessioned", metadata)
+                    ?.let { OffsetDateTime.parse(it) },
             title = title,
             titleJournal = RestConverter.extractMetadata("dc.journalname", metadata),
             titleSeries = RestConverter.extractMetadata("dc.seriesname", metadata),
-            zdbId = RestConverter.extractMetadata("dc.relation.journalzdbid", metadata),
+            zdbIdJournal = RestConverter.extractMetadata("dc.relation.journalzdbid", metadata),
+            zdbIdSeries = RestConverter.extractMetadata("dc.relation.serieszdbid", metadata),
         )
     }
 }
@@ -381,7 +457,7 @@ fun BookmarkRawRest.toBusiness(): Bookmark =
         bookmarkName = this.bookmarkName,
         bookmarkId = this.bookmarkId,
         description = this.description,
-        searchPairs = this.searchTerm?.let { LoriServerBackend.parseValidSearchPairs(it) },
+        searchTerm = this.searchTerm,
         publicationDateFilter = QueryParameterParser.parsePublicationDateFilter(this.filterPublicationDate),
         publicationTypeFilter = QueryParameterParser.parsePublicationTypeFilter(this.filterPublicationType),
         paketSigelFilter = QueryParameterParser.parsePaketSigelFilter(this.filterPaketSigel),
@@ -393,6 +469,12 @@ fun BookmarkRawRest.toBusiness(): Bookmark =
         endDateFilter = QueryParameterParser.parseEndDateFilter(this.filterEndDate),
         validOnFilter = QueryParameterParser.parseRightValidOnFilter(this.filterValidOn),
         noRightInformationFilter = QueryParameterParser.parseNoRightInformationFilter(this.filterNoRightInformation),
+        seriesFilter = QueryParameterParser.parseSeriesFilter(this.filterSeries),
+        licenceURLFilter = QueryParameterParser.parseLicenceUrlFilter(this.filterLicenceUrl),
+        lastUpdatedBy = lastUpdatedBy,
+        lastUpdatedOn = lastUpdatedOn,
+        createdBy = createdBy,
+        createdOn = createdOn,
     )
 
 fun BookmarkRest.toBusiness(): Bookmark =
@@ -400,51 +482,50 @@ fun BookmarkRest.toBusiness(): Bookmark =
         bookmarkName = this.bookmarkName,
         bookmarkId = this.bookmarkId,
         description = this.description,
-        searchPairs = this.searchKeys?.mapNotNull { pair ->
-            val key = SearchKey.toEnum(pair.key)
-            val values = pair.propertyValues
-            if (key == null || values == null) {
-                null
-            } else {
-                SearchPair(key, values.joinToString(separator = " & "))
-            }
-        },
-        publicationDateFilter = PublicationDateFilter(
-            fromYear = this.filterPublicationDate?.fromYear ?: PublicationDateFilter.MIN_YEAR,
-            toYear = this.filterPublicationDate?.toYear ?: PublicationDateFilter.MAX_YEAR,
-        ),
-        publicationTypeFilter = QueryParameterParser.parsePublicationTypeFilter(
-            this.filterPublicationType?.joinToString(
-                separator = ","
-            )
-        ),
+        searchTerm = this.searchTerm,
+        publicationDateFilter =
+            PublicationDateFilter(
+                fromYear = this.filterPublicationDate?.fromYear,
+                toYear = this.filterPublicationDate?.toYear,
+            ),
+        publicationTypeFilter =
+            QueryParameterParser.parsePublicationTypeFilter(
+                this.filterPublicationType?.joinToString(
+                    separator = ",",
+                ),
+            ),
         paketSigelFilter = QueryParameterParser.parsePaketSigelFilter(this.filterPaketSigel?.joinToString(separator = ",")),
         zdbIdFilter = QueryParameterParser.parseZDBIdFilter(this.filterZDBId?.joinToString(separator = ",")),
         accessStateFilter = QueryParameterParser.parseAccessStateFilter(this.filterAccessState?.joinToString(separator = ",")),
-        temporalValidityFilter = QueryParameterParser.parseTemporalValidity(
-            this.filterTemporalValidity?.joinToString(
-                separator = ","
-            )
-        ),
+        temporalValidityFilter =
+            QueryParameterParser.parseTemporalValidity(
+                this.filterTemporalValidity?.joinToString(
+                    separator = ",",
+                ),
+            ),
         formalRuleFilter = QueryParameterParser.parseFormalRuleFilter(this.filterFormalRule?.joinToString(separator = ",")),
         startDateFilter = this.filterStartDate?.let { StartDateFilter(it) },
         endDateFilter = this.filterEndDate?.let { EndDateFilter(it) },
         validOnFilter = this.filterValidOn?.let { RightValidOnFilter(it) },
-        noRightInformationFilter = this.filterNoRightInformation?.takeIf { it }?.let { NoRightInformationFilter() }
+        noRightInformationFilter = this.filterNoRightInformation?.takeIf { it }?.let { NoRightInformationFilter() },
+        licenceURLFilter = this.filterLicenceUrl?.let { LicenceUrlFilter(it) },
+        lastUpdatedBy = lastUpdatedBy,
+        lastUpdatedOn = lastUpdatedOn,
+        createdBy = createdBy,
+        createdOn = createdOn,
     )
 
-fun Bookmark.toRest(): BookmarkRest =
+fun Bookmark.toRest(filtersAsQuery: String): BookmarkRest =
     BookmarkRest(
         bookmarkName = this.bookmarkName,
         bookmarkId = this.bookmarkId,
         description = this.description,
-        searchKeys = this.searchPairs?.map { pair ->
-            SearchKeyRest(pair.key.fromEnum(), listOf(pair.values))
-        },
-        filterPublicationDate = FilterPublicationDateRest(
-            fromYear = this.publicationDateFilter?.fromYear,
-            toYear = this.publicationDateFilter?.toYear,
-        ),
+        searchTerm = this.searchTerm,
+        filterPublicationDate =
+            FilterPublicationDateRest(
+                fromYear = this.publicationDateFilter?.fromYear,
+                toYear = this.publicationDateFilter?.toYear,
+            ),
         filterPublicationType = this.publicationTypeFilter?.publicationTypes?.map { it.toString() },
         filterAccessState = this.accessStateFilter?.accessStates?.map { it.toString() },
         filterTemporalValidity = this.temporalValidityFilter?.temporalValidity?.map { it.toString() },
@@ -454,78 +535,136 @@ fun Bookmark.toRest(): BookmarkRest =
         filterValidOn = this.validOnFilter?.date,
         filterPaketSigel = this.paketSigelFilter?.paketSigels,
         filterZDBId = this.zdbIdFilter?.zdbIds,
-        filterNoRightInformation = this.noRightInformationFilter?.let { true } ?: false
+        filterNoRightInformation = this.noRightInformationFilter?.let { true } ?: false,
+        createdBy = this.createdBy,
+        createdOn = this.createdOn,
+        lastUpdatedBy = this.lastUpdatedBy,
+        lastUpdatedOn = this.lastUpdatedOn,
+        filterSeries = this.seriesFilter?.seriesNames,
+        filterTemplateName = this.templateNameFilter?.templateNames,
+        filtersAsQuery = filtersAsQuery,
+        filterLicenceUrl = this.licenceURLFilter?.licenceUrl,
     )
 
 fun BookmarkTemplateRest.toBusiness(): BookmarkTemplate =
     BookmarkTemplate(
         bookmarkId = this.bookmarkId,
-        templateId = this.templateId,
+        rightId = this.rightId,
     )
 
 fun BookmarkTemplate.toRest(): BookmarkTemplateRest =
     BookmarkTemplateRest(
         bookmarkId = this.bookmarkId,
-        templateId = this.templateId,
+        rightId = this.rightId,
     )
 
-fun SearchQueryResult.toRest(
-    pageSize: Int,
-): ItemInformation {
+fun ErrorQueryResult.toRest(pageSize: Int): RightErrorInformationRest {
+    val totalPages = ceil(this.totalNumberOfResults.toDouble() / pageSize.toDouble()).toInt()
+    return RightErrorInformationRest(
+        numberOfResults = totalNumberOfResults,
+        totalPages = totalPages,
+        errors = this.results.map { it.toRest() },
+        contextNames = this.contextNames.toList(),
+        conflictTypes = this.conflictTypes.map { it.toRest() },
+    )
+}
+
+fun SearchQueryResult.toRest(pageSize: Int): ItemInformation {
     val totalPages = ceil(this.numberOfResults.toDouble() / pageSize.toDouble()).toInt()
     return ItemInformation(
         itemArray = this.results.map { it.toRest() },
         totalPages = totalPages,
-        accessStateWithCount = this.accessState.entries.map {
-            AccessStateWithCountRest(it.key.toRest(), it.value)
-        }.toList(),
+        accessStateWithCount =
+            this.accessState.entries
+                .sortedBy { it.key.priority }
+                .map {
+                    AccessStateWithCountRest(it.key.toRest(), it.value)
+                }.toList(),
         hasLicenceContract = this.hasLicenceContract,
         hasOpenContentLicence = this.hasOpenContentLicence,
-        hasSearchTokenWithNoKey = this.hasSearchTokenWithNoKey,
         hasZbwUserAgreement = this.hasZbwUserAgreement,
-        invalidSearchKey = this.invalidSearchKey,
         numberOfResults = this.numberOfResults,
-        paketSigelWithCount = this.paketSigels.entries
-            .map { PaketSigelWithCountRest(count = it.value, paketSigel = it.key) }.toList(),
-        publicationTypeWithCount = this.publicationType.entries.map {
-            PublicationTypeWithCountRest(
-                count = it.value,
-                publicationType = it.key.toRest(),
-            )
-        }.toList(),
-        zdbIdWithCount = this.zdbIds.entries.map {
-            ZdbIdWithCountRest(
-                count = it.value,
-                zdbId = it.key,
-            )
-        }.toList(),
-        templateIdWithCount = this.templateIds.entries.map {
-            TemplateIdWithCountRest(
-                templateId = it.key.toString(),
-                templateName = it.value.first,
-                count = it.value.second,
-            )
-        }
+        paketSigelWithCount =
+            this.paketSigels.entries
+                .map { PaketSigelWithCountRest(count = it.value, paketSigel = it.key) }
+                .toList()
+                .sortedBy { it.paketSigel.lowercase() },
+        publicationTypeWithCount =
+            this.publicationType.entries
+                .sortedBy { it.key.priority }
+                .map {
+                    PublicationTypeWithCountRest(
+                        count = it.value,
+                        publicationType = it.key.toRest(),
+                    )
+                }.toList(),
+        zdbIdWithCount =
+            this.zdbIds.entries
+                .map {
+                    ZdbIdWithCountRest(
+                        count = it.value,
+                        zdbId = it.key,
+                    )
+                }.toList()
+                .sortedBy { it.count }
+                .reversed(),
+        templateNameWithCount =
+            this.templateNamesToOcc.entries
+                .map {
+                    TemplateNameWithCountRest(
+                        templateName = it.value.first,
+                        count = it.value.second,
+                    )
+                }.sortedBy { it.templateName.lowercase() },
+        isPartOfSeriesCount =
+            this.isPartOfSeries.entries
+                .map {
+                    IsPartOfSeriesCountRest(
+                        count = it.value,
+                        series = it.key,
+                    )
+                }.toList()
+                .sortedBy { it.count }
+                .reversed(),
+        licenceUrlCount =
+            this.licenceUrl.entries
+                .map {
+                    LicenceUrlCountRest(
+                        count = it.value,
+                        licenceUrl = it.key,
+                    )
+                }.toList()
+                .sortedBy { it.licenceUrl.lowercase() },
+        filtersAsQuery = filtersAsQuery,
     )
 }
 
 fun ConflictType.toRest(): ConflictTypeRest =
     when (this) {
-        ConflictType.DATE_OVERLAP -> ConflictTypeRest.dateOverlap
+        ConflictType.DATE_OVERLAP -> ConflictTypeRest.date_overlap
         ConflictType.UNSPECIFIED -> ConflictTypeRest.unspecified
+        ConflictType.GAP -> ConflictTypeRest.gap
+        ConflictType.NO_RIGHT -> ConflictTypeRest.no_right
+    }
+
+fun ConflictType.toProto(): de.zbw.lori.api.ConflictType =
+    when (this) {
+        ConflictType.DATE_OVERLAP -> de.zbw.lori.api.ConflictType.CONFLICT_TYPE_DATE_OVERLAP
+        ConflictType.UNSPECIFIED -> de.zbw.lori.api.ConflictType.CONFLICT_TYPE_UNSPECIFIED
+        ConflictType.GAP -> de.zbw.lori.api.ConflictType.CONFLICT_TYPE_GAP
+        ConflictType.NO_RIGHT -> de.zbw.lori.api.ConflictType.CONFLICT_TYPE_NO_RIGHT
     }
 
 fun RightError.toRest(): RightErrorRest =
     RightErrorRest(
-        errorId = errorId,
-        conflictingRightId = conflictingRightId,
+        conflictByRightId = conflictByRightId,
+        conflictByContext = conflictByContext,
         createdOn = createdOn,
         message = message,
-        handleId = handleId,
-        metadataId = metadataId,
-        rightIdSource = rightIdSource,
-        templateIdSource = templateIdSource,
-        conflictType = conflictType?.toRest(),
+        handle = handle,
+        conflictingWithRightId = conflictingWithRightId,
+        conflictType = conflictType.toRest(),
+        errorId = errorId ?: -1,
     )
 
 /**
@@ -533,18 +672,25 @@ fun RightError.toRest(): RightErrorRest =
  * REST to Business Objects and vice versa.
  */
 object RestConverter {
-    fun extractMetadata(key: String, metadata: List<DAMetadata>): String? =
-        metadata.filter { dam -> dam.key == key }.takeIf { it.isNotEmpty() }?.first()?.value
+    fun extractMetadata(
+        key: String,
+        metadata: List<DAMetadata>,
+    ): String? =
+        metadata
+            .filter { dam -> dam.key == key }
+            .takeIf { it.isNotEmpty() }
+            ?.first()
+            ?.value
 
-    fun parseToDate(s: String): LocalDate {
-        return if (s.matches("\\d{4}-\\d{2}-\\d{2}".toRegex())) {
+    fun parseToDate(s: String): LocalDate =
+        if (s.matches("\\d{4}-\\d{2}-\\d{2}".toRegex())) {
             LocalDate.parse(s, DateTimeFormatter.ISO_LOCAL_DATE)
         } else if (s.matches("\\d{4}-\\d{2}".toRegex())) {
             LocalDate.parse("$s-01", DateTimeFormatter.ISO_LOCAL_DATE)
         } else if (s.matches("\\d{4}/\\d{2}".toRegex())) {
             LocalDate.parse(
                 "${s.substringBefore('/')}-${s.substringAfter('/')}-01",
-                DateTimeFormatter.ISO_LOCAL_DATE
+                DateTimeFormatter.ISO_LOCAL_DATE,
             )
         } else if (s.matches("\\d{4}".toRegex())) {
             LocalDate.parse("$s-01-01", DateTimeFormatter.ISO_LOCAL_DATE)
@@ -552,7 +698,6 @@ object RestConverter {
             LOG.warn("Date format can't be recognized: $s")
             LocalDate.parse("1970-01-01", DateTimeFormatter.ISO_LOCAL_DATE)
         }
-    }
 
     /**
      * Parse CSV formatted string.
@@ -561,17 +706,21 @@ object RestConverter {
      */
     fun parseToGroup(
         hasCSVHeader: Boolean,
-        ipAddressesCSV: String
+        ipAddressesCSV: String,
     ): List<GroupEntry> =
         try {
-            val csvFormat: CSVFormat = CSVFormat.Builder.create()
-                .setDelimiter(';')
-                .setQuote(Character.valueOf('"'))
-                .setRecordSeparator("\r\n")
-                .build()
-            CSVFormat.Builder.create(csvFormat).apply {
-                setIgnoreSurroundingSpaces(true)
-            }.build()
+            val csvFormat: CSVFormat =
+                CSVFormat.Builder
+                    .create()
+                    .setDelimiter(';')
+                    .setQuote(Character.valueOf('"'))
+                    .setRecordSeparator("\r\n")
+                    .build()
+            CSVFormat.Builder
+                .create(csvFormat)
+                .apply {
+                    setIgnoreSurroundingSpaces(true)
+                }.build()
                 .let { CSVParser.parse(ipAddressesCSV, it) }
                 .let {
                     if (hasCSVHeader) {
@@ -589,6 +738,8 @@ object RestConverter {
         } catch (e: Exception) {
             throw IllegalArgumentException()
         }
+
+    fun parseHandle(given: String): String = given.replace("^[\\D]*".toRegex(), "")
 
     private val LOG = LogManager.getLogger(RestConverter::class.java)
     const val CSV_DELIMITER = ";"

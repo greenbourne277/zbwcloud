@@ -9,14 +9,10 @@ export default defineComponent({
   props: {
     rightId: {
       type: String,
-      required: true,
+      required: false,
     },
     index: {
       type: Number,
-      required: true,
-    },
-    metadataId: {
-      type: String,
       required: true,
     },
     isTemplate: {
@@ -43,13 +39,13 @@ export default defineComponent({
       deleteAlertError.value = false;
       deleteError.value = false;
 
-      if (props.rightId == "") {
+      if (props.rightId == undefined || props.rightId == "") {
         deleteErrorMessage.value = "Es fehlt eine valide Rechte-Id!";
         deleteError.value = true;
         deleteAlertError.value = true;
       } else {
         api
-          .deleteItemRelation(props.metadataId, props.rightId)
+          .deleteRight(props.rightId)
           .then(() => {
             historyStore.addEntry({
               type: ChangeType.DELETED,
@@ -75,13 +71,13 @@ export default defineComponent({
       deleteInProgress.value = true;
       deleteAlertError.value = false;
       deleteError.value = false;
-      if (props.rightId == "") {
+      if (props.rightId == undefined || props.rightId == "") {
         deleteErrorMessage.value = "Es fehlt eine valide Rechte-Id!";
         deleteError.value = true;
         deleteAlertError.value = true;
       } else {
         templateApi
-          .deleteTemplate(parseInt(props.rightId))
+          .deleteTemplateById(props.rightId)
           .then(() => {
             emit("templateDeleteSuccessful");
             close();
@@ -131,7 +127,10 @@ export default defineComponent({
       Löschen war nicht erfolgreich:
       {{ deleteErrorMessage }}
     </v-alert>
-    <v-card-text>
+    <v-card-text v-if="isTemplate">
+      Möchtest du dieses Template wirklich löschen?
+    </v-card-text>
+    <v-card-text v-else>
       Möchtest du diese Rechteinformation wirklich löschen?
     </v-card-text>
     <v-card-actions>

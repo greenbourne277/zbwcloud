@@ -1,5 +1,6 @@
 package de.zbw.api.lori.server.route
 
+import de.zbw.api.lori.server.type.UserSession
 import de.zbw.api.lori.server.type.toBusiness
 import de.zbw.api.lori.server.type.toRest
 import de.zbw.business.lori.server.LoriServerBackend
@@ -9,6 +10,7 @@ import de.zbw.lori.model.RightRest
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.auth.authenticate
+import io.ktor.server.auth.principal
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -36,10 +38,11 @@ fun Routing.rightRoutes(
 ) {
     route("/api/v1/right") {
         get("{id}") {
-            val span = tracer
-                .spanBuilder("lori.LoriService.GET/api/v1/right/{id}")
-                .setSpanKind(SpanKind.SERVER)
-                .startSpan()
+            val span =
+                tracer
+                    .spanBuilder("lori.LoriService.GET/api/v1/right/{id}")
+                    .setSpanKind(SpanKind.SERVER)
+                    .startSpan()
             withContext(span.asContextElement()) {
                 try {
                     val rightId = call.parameters["id"]
@@ -50,7 +53,7 @@ fun Routing.rightRoutes(
                             HttpStatusCode.BadRequest,
                             ApiError.badRequestError(
                                 detail = ApiError.NO_VALID_ID,
-                            )
+                            ),
                         )
                     } else {
                         val right: ItemRight? = backend.getRightsByIds(listOf(rightId)).firstOrNull()
@@ -61,7 +64,7 @@ fun Routing.rightRoutes(
                             span.setStatus(StatusCode.ERROR)
                             call.respond(
                                 HttpStatusCode.NotFound,
-                                ApiError.notFoundError(ApiError.NO_RESOURCE_FOR_ID)
+                                ApiError.notFoundError(ApiError.NO_RESOURCE_FOR_ID),
                             )
                         }
                     }
@@ -69,7 +72,7 @@ fun Routing.rightRoutes(
                     span.setStatus(StatusCode.ERROR, "Exception: ${e.message}")
                     call.respond(
                         HttpStatusCode.InternalServerError,
-                        ApiError.internalServerError()
+                        ApiError.internalServerError(),
                     )
                 } finally {
                     span.end()
@@ -79,18 +82,39 @@ fun Routing.rightRoutes(
 
         authenticate("auth-login") {
             post {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.POST/api/v1/right")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.POST/api/v1/right")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         @Suppress("SENSELESS_COMPARISON")
-                        val right: RightRest = call.receive(RightRest::class)
-                            .takeIf { it.startDate != null && it.accessState != null }
-                            ?: throw BadRequestException("Invalid Json has been provided")
+                        val right: RightRest =
+                            call
+                                .receive(RightRest::class)
+                                .takeIf { it.startDate != null && it.accessState != null }
+                                ?: throw BadRequestException("Invalid Json has been provided")
                         span.setAttribute("right", right.toString())
-                        val pk = backend.insertRight(right.toBusiness())
+                        val userSession: UserSession =
+                            call.principal<UserSession>()
+                                ?: return@withContext call.respond(
+                                    HttpStatusCode.Unauthorized,
+                                    ApiError.unauthorizedError("User is not authorized"),
+                                ) // This should never happen
+                        if (right.endDate != null && right.endDate!! <= right.startDate) {
+                            return@withContext call.respond(
+                                HttpStatusCode.BadRequest,
+                                ApiError.badRequestError("Enddatum muss nach dem Startdatum liegen."),
+                            )
+                        }
+                        val pk =
+                            backend.insertRight(
+                                right.toBusiness().copy(
+                                    createdBy = userSession.email,
+                                    lastUpdatedBy = userSession.email,
+                                ),
+                            )
                         span.setStatus(StatusCode.OK)
                         call.respond(RightIdCreated(pk))
                     } catch (e: BadRequestException) {
@@ -99,13 +123,13 @@ fun Routing.rightRoutes(
                             HttpStatusCode.BadRequest,
                             ApiError.badRequestError(
                                 detail = ApiError.INVALID_JSON,
-                            )
+                            ),
                         )
                     } catch (e: Exception) {
                         span.setStatus(StatusCode.ERROR, "Exception: ${e.message}")
                         call.respond(
                             HttpStatusCode.InternalServerError,
-                            ApiError.internalServerError()
+                            ApiError.internalServerError(),
                         )
                     } finally {
                         span.end()
@@ -114,24 +138,47 @@ fun Routing.rightRoutes(
             }
 
             put {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.PUT/api/v1/right")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.PUT/api/v1/right")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         @Suppress("SENSELESS_COMPARISON")
                         val right: RightRest =
-                            call.receive(RightRest::class)
+                            call
+                                .receive(RightRest::class)
                                 .takeIf { it.rightId != null && it.startDate != null && it.accessState != null }
                                 ?: throw BadRequestException("Invalid Json has been provided")
                         span.setAttribute("right", right.toString())
+                        val userSession: UserSession =
+                            call.principal<UserSession>()
+                                ?: return@withContext call.respond(
+                                    HttpStatusCode.Unauthorized,
+                                    ApiError.unauthorizedError("User is not authorized"),
+                                ) // This should never happen
+                        if (right.endDate != null && right.endDate!! <= right.startDate) {
+                            return@withContext call.respond(
+                                HttpStatusCode.BadRequest,
+                                ApiError.badRequestError("Enddatum muss nach dem Startdatum liegen."),
+                            )
+                        }
                         if (backend.rightContainsId(right.rightId!!)) {
-                            backend.upsertRight(right.toBusiness())
+                            backend.upsertRight(
+                                right.toBusiness().copy(
+                                    lastUpdatedBy = userSession.email,
+                                ),
+                            )
                             span.setStatus(StatusCode.OK)
                             call.respond(HttpStatusCode.NoContent)
                         } else {
-                            backend.insertRight(right.toBusiness())
+                            backend.insertRight(
+                                right.toBusiness().copy(
+                                    lastUpdatedBy = userSession.email,
+                                    createdBy = userSession.email,
+                                ),
+                            )
                             span.setStatus(StatusCode.OK)
                             call.respond(HttpStatusCode.Created)
                         }
@@ -140,8 +187,8 @@ fun Routing.rightRoutes(
                         call.respond(
                             HttpStatusCode.BadRequest,
                             ApiError.badRequestError(
-                                ApiError.INVALID_JSON
-                            )
+                                ApiError.INVALID_JSON,
+                            ),
                         )
                     } catch (e: Exception) {
                         span.setStatus(StatusCode.ERROR, "Exception: ${e.message}")
@@ -153,10 +200,11 @@ fun Routing.rightRoutes(
             }
 
             delete("{id}") {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.DELETE/api/v1/right")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.DELETE/api/v1/right")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         val rightId = call.parameters["id"]
@@ -164,19 +212,20 @@ fun Routing.rightRoutes(
                         if (rightId == null) {
                             span.setStatus(StatusCode.ERROR, "BadRequest: No valid id has been provided in the url.")
                             call.respond(HttpStatusCode.BadRequest, ApiError.badRequestError(ApiError.NO_VALID_ID))
-                        } else if (backend.itemContainsRight(rightId)) {
-                            span.setStatus(
-                                StatusCode.ERROR,
-                                "Conflict: Right id $rightId is still in use. Can't be deleted."
-                            )
-                            call.respond(
-                                HttpStatusCode.Conflict,
-                                ApiError.conflictError(ApiError.RESOURCE_STILL_IN_USE)
-                            )
                         } else {
-                            backend.deleteRight(rightId)
-                            span.setStatus(StatusCode.OK)
-                            call.respond(HttpStatusCode.OK)
+                            val entriesDeleted = backend.deleteRight(rightId)
+                            if (entriesDeleted == 1) {
+                                span.setStatus(StatusCode.OK)
+                                call.respond(HttpStatusCode.OK)
+                            } else {
+                                span.setStatus(StatusCode.ERROR)
+                                call.respond(
+                                    HttpStatusCode.NotFound,
+                                    ApiError.notFoundError(
+                                        detail = "Recht mit ID '$rightId' existiert nicht.",
+                                    ),
+                                )
+                            }
                         }
                     } catch (e: Exception) {
                         span.setStatus(StatusCode.ERROR, "Exception: ${e.message}")

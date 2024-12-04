@@ -6,15 +6,10 @@ const routes: Array<RouteRecordRaw> = [
     name: "ui",
     component: () => import("../components/ItemList.vue"),
   },
-  {
-    path: "/api/v1",
-    name: "api",
-    component: () => import("../components/API.vue"),
-  },
 ];
 
 const router = createRouter({
-  history: createWebHistory(process.env.BASE_URL),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: routes,
 });
 

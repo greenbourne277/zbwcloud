@@ -1,7 +1,7 @@
 <script lang="ts">
 import RightsEditDialog from "@/components/RightsEditDialog.vue";
 import { RightRest } from "@/generated-sources/openapi";
-import { computed, ComputedRef, defineComponent, PropType, ref } from "vue";
+import {computed, ComputedRef, defineComponent, onMounted, PropType, ref, watch} from "vue";
 
 export default defineComponent({
   props: {
@@ -9,7 +9,11 @@ export default defineComponent({
       type: Object as PropType<Array<RightRest>>,
       required: true,
     },
-    metadataId: {
+    selectedRight: {
+      type: String,
+      required: true,
+    },
+    handle: {
       type: String,
       required: true,
     },
@@ -21,7 +25,6 @@ export default defineComponent({
 
   setup(props, { emit }) {
     const renderKey = ref(0);
-    const tab = ref(null);
     const lastDeletedRight = ref("");
     const lastDeletionSuccessful = ref(false);
     const lastUpdatedRight = ref("");
@@ -75,6 +78,29 @@ export default defineComponent({
       return props.rights;
     });
 
+    const tab = ref(0);
+    watch(() => props.selectedRight, (currentValue: string, oldValue: string) => {
+      const preselectedIdx = props.rights.findIndex(
+          (e) => e.rightId === props.selectedRight,
+      );
+      if (preselectedIdx == -1){
+        tab.value = 0;
+      } else {
+        tab.value = preselectedIdx;
+      }
+    });
+
+    onMounted(() => {
+      const preselectedIdx = props.rights.findIndex(
+         (e) => e.rightId === props.selectedRight,
+      );
+      if (preselectedIdx == -1){
+        tab.value = 0;
+      } else {
+        tab.value = preselectedIdx;
+      }
+    });
+
     return {
       currentRights,
       lastDeletedRight,
@@ -99,7 +125,7 @@ export default defineComponent({
 <template>
   <v-card>
     <v-toolbar :key="renderKey" color="cyan" dark flat>
-      <v-toolbar-title> Editiere Rechte für {{ metadataId }} </v-toolbar-title>
+      <v-toolbar-title> Editiere Rechte für {{ handle }} </v-toolbar-title>
       <v-spacer></v-spacer>
       <template v-slot:extension>
         <v-tabs
@@ -109,7 +135,7 @@ export default defineComponent({
           slider-color="yellow"
         >
           <v-tab v-for="r in currentRights" :key="r.rightId">
-            <v-icon v-if="r.templateId != undefined">mdi-note-multiple</v-icon>
+            <v-icon v-if="r.isTemplate">mdi-note-multiple</v-icon>
             <v-icon v-else>mdi-note-outline</v-icon>
             Id:'{{ r.rightId }}'; {{ parseDate(r.startDate) }} -
             {{ parseDate(r.endDate) }}
@@ -126,15 +152,14 @@ export default defineComponent({
         @close="resetLastDeletionSuccessful"
       >
         Rechteinformation {{ lastDeletedRight }} erfolgreich gelöscht für Item
-        {{ metadataId }}.
+        {{ handle }}.
       </v-alert>
       <v-window-item v-for="(item, index) in currentRights" :key="item.rightId">
         <RightsEditDialog
-          :activated="true"
           :index="index"
           :isNewRight="false"
           :isNewTemplate="false"
-          :metadataId="metadataId"
+          :handle="handle"
           :right="item"
           v-on:deleteSuccessful="deleteSuccessful"
           v-on:editRightClosed="tabDialogClosed"

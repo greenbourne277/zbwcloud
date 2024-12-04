@@ -6,22 +6,19 @@ PublicationTypeRest:
     - book_part
     - conference_paper
     - periodical_part
-    - proceedings
+    - proceeding
     - research_report
     - thesis
     - working_paper
+    - other
 
 MetadataRest:
   required:
     - handle
-    - metadataId
     - publicationType
-    - publicationDate
     - title
   type: object
   properties:
-    metadataId:
-      type: string
     author:
       type: string
     band:
@@ -47,11 +44,15 @@ MetadataRest:
       type: string
     issn:
       type: string
+    isPartOfSeries:
+      type: string
     lastUpdatedBy:
       type: string
     lastUpdatedOn:
       type: string
       format: date-time
+    licenceUrl:
+      type: string
     paketSigel:
       type: string
     ppn:
@@ -63,10 +64,10 @@ MetadataRest:
       format: date
     rightsK10plus:
       type: string
-    subCommunitiesHandles:
-      type: array
-      items:
-        type: string
+    subCommunityHandle:
+      type: string
+    subCommunityName:
+      type: string
     storageDate:
       type: string
       format: date-time
@@ -76,5 +77,7 @@ MetadataRest:
       type: string
     titleSeries:
       type: string
-    zdbId:
+    zdbIdJournal:
+      type: string
+    zdbIdSeries:
       type: string

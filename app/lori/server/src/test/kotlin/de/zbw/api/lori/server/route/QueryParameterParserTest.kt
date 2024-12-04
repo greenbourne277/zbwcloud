@@ -23,7 +23,6 @@ import kotlin.test.assertNull
  * @author Christian Bay (c.bay@zbw.eu)
  */
 class QueryParameterParserTest {
-
     @DataProvider(name = DATA_FOR_PARSE_PUBLICATION_DATE)
     fun createDataForParsePublicationDate() =
         arrayOf(
@@ -33,11 +32,11 @@ class QueryParameterParserTest {
             ),
             arrayOf(
                 "2000-",
-                PublicationDateFilter(2000, PublicationDateFilter.MAX_YEAR),
+                PublicationDateFilter(2000, null),
             ),
             arrayOf(
                 "-2000",
-                PublicationDateFilter(PublicationDateFilter.MIN_YEAR, 2000),
+                PublicationDateFilter(null, 2000),
             ),
             arrayOf(
                 "foobar",
@@ -61,13 +60,13 @@ class QueryParameterParserTest {
                 received!!.fromYear,
                 `is`(
                     expectedFilter.fromYear,
-                )
+                ),
             )
             assertThat(
                 received.toYear,
                 `is`(
-                    expectedFilter.toYear
-                )
+                    expectedFilter.toYear,
+                ),
             )
         }
     }
@@ -80,7 +79,7 @@ class QueryParameterParserTest {
                 PublicationTypeFilter(
                     listOf(
                         PublicationType.WORKING_PAPER,
-                        PublicationType.ARTICLE
+                        PublicationType.ARTICLE,
                     ),
                 ),
             ),
@@ -114,7 +113,7 @@ class QueryParameterParserTest {
                 received!!.publicationTypes.toSet(),
                 `is`(
                     expectedFilter.publicationTypes.toSet(),
-                )
+                ),
             )
         }
     }
@@ -162,7 +161,7 @@ class QueryParameterParserTest {
                 received!!.accessStates.toSet(),
                 `is`(
                     expectedFilter.accessStates.toSet(),
-                )
+                ),
             )
         }
     }
@@ -170,12 +169,14 @@ class QueryParameterParserTest {
     @Test
     fun testParseDateFilter() {
         // given
-        val expectedStartFilter = StartDateFilter(
-            LocalDate.of(2000, 10, 1)
-        )
-        val expectedEndFilter = EndDateFilter(
-            LocalDate.of(2000, 12, 1)
-        )
+        val expectedStartFilter =
+            StartDateFilter(
+                LocalDate.of(2000, 10, 1),
+            )
+        val expectedEndFilter =
+            EndDateFilter(
+                LocalDate.of(2000, 12, 1),
+            )
 
         // when + then
         assertThat(
@@ -186,7 +187,7 @@ class QueryParameterParserTest {
         // when + then
         assertThat(
             QueryParameterParser.parseEndDateFilter("2000-12-01")!!.date,
-            `is`(expectedEndFilter.date)
+            `is`(expectedEndFilter.date),
         )
 
         // when + then
@@ -231,19 +232,6 @@ class QueryParameterParserTest {
         assertNotNull(QueryParameterParser.parseNoRightInformationFilter("tRue"))
         assertNotNull(QueryParameterParser.parseNoRightInformationFilter("true"))
         assertNotNull(QueryParameterParser.parseNoRightInformationFilter("TRUE"))
-    }
-
-    @Test
-    fun testParseTemplateIdFilter() {
-        assertNull(QueryParameterParser.parseTemplateIdFilter("555nase"))
-        assertThat(
-            QueryParameterParser.parseTemplateIdFilter("555")!!.templateIds,
-            `is`(listOf(555))
-        )
-        assertThat(
-            QueryParameterParser.parseTemplateIdFilter("555,444")!!.templateIds,
-            `is`(listOf(555, 444))
-        )
     }
 
     companion object {

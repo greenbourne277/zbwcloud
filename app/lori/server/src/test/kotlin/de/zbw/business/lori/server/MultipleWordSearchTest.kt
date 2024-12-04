@@ -2,6 +2,7 @@ package de.zbw.business.lori.server
 
 import de.zbw.business.lori.server.type.ItemMetadata
 import de.zbw.business.lori.server.type.SearchQueryResult
+import de.zbw.persistence.lori.server.ConnectionPool
 import de.zbw.persistence.lori.server.DatabaseConnector
 import de.zbw.persistence.lori.server.DatabaseTest
 import de.zbw.persistence.lori.server.ItemDBTest.Companion.NOW
@@ -11,6 +12,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.opentelemetry.api.OpenTelemetry
+import kotlinx.coroutines.runBlocking
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.core.Is.`is`
 import org.testng.annotations.AfterClass
@@ -26,31 +28,35 @@ import java.time.Instant
  * @author Christian Bay (c.bay@zbw.eu)
  */
 class MultipleWordSearchTest : DatabaseTest() {
-    private val backend = LoriServerBackend(
-        DatabaseConnector(
-            connection = dataSource.connection,
-            tracer = OpenTelemetry.noop().getTracer("de.zbw.business.lori.server.LoriServerBackendTest"),
-        ),
-        mockk(),
-    )
+    private val backend =
+        LoriServerBackend(
+            DatabaseConnector(
+                connectionPool = ConnectionPool(testDataSource),
+                tracer = OpenTelemetry.noop().getTracer("de.zbw.business.lori.server.LoriServerBackendTest"),
+            ),
+            mockk(),
+        )
 
-    private val multipleWords = TEST_Metadata.copy(
-        metadataId = "multiple word",
-        collectionName = "subject1 subject2 subject3"
-    )
+    private val multipleWords =
+        TEST_Metadata.copy(
+            handle = "multiple word",
+            collectionName = "subject1 subject2 subject3",
+        )
 
-    private fun getInitialMetadata() = listOf(
-        multipleWords,
-    )
+    private fun getInitialMetadata() =
+        listOf(
+            multipleWords,
+        )
 
     @BeforeClass
-    fun fillDB() {
-        mockkStatic(Instant::class)
-        every { Instant.now() } returns NOW.toInstant()
-        getInitialMetadata().forEach {
-            backend.insertMetadataElement(it)
+    fun fillDB() =
+        runBlocking {
+            mockkStatic(Instant::class)
+            every { Instant.now() } returns NOW.toInstant()
+            getInitialMetadata().forEach {
+                backend.insertMetadataElement(it)
+            }
         }
-    }
 
     @AfterClass
     fun afterTests() {
@@ -58,24 +64,25 @@ class MultipleWordSearchTest : DatabaseTest() {
     }
 
     @DataProvider(name = DATA_FOR_MULTIPLE_WORDS)
-    fun createDataForMultipleWords() = arrayOf(
+    fun createDataForMultipleWords() =
         arrayOf(
-            "col:'subject1 & subject2'",
-            10,
-            0,
-            multipleWords,
-            1,
-            "search for two words next to each other"
-        ),
-        arrayOf(
-            "col:'subject1 & subject3'",
-            10,
-            0,
-            multipleWords,
-            1,
-            "search for two words separated from each other"
-        ),
-    )
+            arrayOf(
+                "col:'subject1 & subject2'",
+                10,
+                0,
+                multipleWords,
+                1,
+                "search for two words next to each other",
+            ),
+            arrayOf(
+                "col:'subject1 & subject3'",
+                10,
+                0,
+                multipleWords,
+                1,
+                "search for two words separated from each other",
+            ),
+        )
 
     @Test(dataProvider = DATA_FOR_MULTIPLE_WORDS)
     fun findMultipleWords(
@@ -87,7 +94,10 @@ class MultipleWordSearchTest : DatabaseTest() {
         description: String,
     ) {
         // when
-        val searchQueryResult: SearchQueryResult = backend.searchQuery(searchTerm, limit, offset)
+        val searchQueryResult: SearchQueryResult =
+            runBlocking {
+                backend.searchQuery(searchTerm, limit, offset)
+            }
 
         // then
         assertThat(

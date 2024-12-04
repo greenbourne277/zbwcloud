@@ -1,14 +1,3 @@
-TemplateIdCreated:
-  required:
-    - templateId
-    - rightId
-  type: object
-  properties:
-    templateId:
-      type: integer
-    rightId:
-      type: string
-
 BookmarkIdsRest:
   type: object
   properties:
@@ -17,29 +6,36 @@ BookmarkIdsRest:
       items:
         type: integer
 
-TemplateIdsRest:
+RightIdsRest:
   type: object
   properties:
-    templateIds:
+    rightIds:
       type: array
       items:
-        type: integer
+        type: string
 
 TemplateApplicationRest:
   required:
-    - metadataIds
+    - handles
     - numberOfAppliedEntries
-    - templateId
+    - rightId
+    - templateName
   type: object
   properties:
-    metadataIds:
+    handles:
       type: array
       items:
         type: string
     numberOfAppliedEntries:
       type: integer
-    templateId:
-      type: integer
+    rightId:
+      type: string
+    templateName:
+      type: string
+    exceptionTemplateApplications:
+      type: array
+      items:
+        $ref: 'template.model.yaml#/TemplateApplicationRest'
     errors:
       type: array
       items:
@@ -54,3 +50,16 @@ TemplateApplicationsRest:
       type: array
       items:
         $ref: 'template.model.yaml#/TemplateApplicationRest'
+
+ExceptionsForTemplateRest:
+  required:
+    - idOfTemplate
+    - idsOfExceptions
+  type: object
+  properties:
+    idOfTemplate:
+      type: string
+    idsOfExceptions:
+      type: array
+      items:
+        type: string

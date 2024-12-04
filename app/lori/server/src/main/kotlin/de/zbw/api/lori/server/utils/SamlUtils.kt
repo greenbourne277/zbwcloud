@@ -1,4 +1,4 @@
-package de.zbw.api.lori.server.type
+package de.zbw.api.lori.server.utils
 
 import net.shibboleth.utilities.java.support.component.ComponentInitializationException
 import net.shibboleth.utilities.java.support.resolver.CriteriaSet
@@ -13,9 +13,10 @@ import org.opensaml.core.xml.config.XMLObjectProviderRegistrySupport
 import org.opensaml.saml.common.xml.SAMLConstants
 import org.opensaml.saml.criterion.EntityRoleCriterion
 import org.opensaml.saml.criterion.ProtocolCriterion
-import org.opensaml.saml.metadata.resolver.impl.FilesystemMetadataResolver
+import org.opensaml.saml.metadata.resolver.impl.AbstractReloadingMetadataResolver
 import org.opensaml.saml.metadata.resolver.impl.PredicateRoleDescriptorResolver
 import org.opensaml.saml.saml2.core.Assertion
+import org.opensaml.saml.saml2.core.Response
 import org.opensaml.saml.saml2.metadata.IDPSSODescriptor
 import org.opensaml.saml.security.impl.MetadataCredentialResolver
 import org.opensaml.saml.security.impl.SAMLSignatureProfileValidator
@@ -26,8 +27,6 @@ import org.opensaml.xmlsec.signature.Signature
 import org.opensaml.xmlsec.signature.support.SignatureValidator
 import org.w3c.dom.Document
 import java.io.ByteArrayInputStream
-import java.io.File
-import java.io.FileNotFoundException
 import java.net.URLDecoder
 import java.util.Base64
 import javax.xml.namespace.QName
@@ -40,38 +39,45 @@ import javax.xml.parsers.DocumentBuilderFactory
  * @author Christian Bay (c.bay@zbw.eu)
  */
 class SamlUtils(
-    private val senderEntityId: String,
+    private val metadataPath: String,
     registry: XMLObjectProviderRegistry = XMLObjectProviderRegistry(),
 ) {
     init {
         ConfigurationService.register(
-            XMLObjectProviderRegistry::class.java, registry
+            XMLObjectProviderRegistry::class.java,
+            registry,
         )
         registry.parserPool = getParserPool()
         InitializationService.initialize()
     }
 
+    private var metadataCredentialResolver: MetadataCredentialResolver? = null
+
     // Get resolver to extract public key from metadata
-    private val metadataCredentialResolver: MetadataCredentialResolver = getMetadataCredentialResolver()
+    fun initMetadataResolver(metadataResolver: AbstractReloadingMetadataResolver) {
+        metadataCredentialResolver = getMetadataCredentialResolver(metadataResolver)
+    }
 
     private fun getParserPool(): ParserPool {
-        val parserPool = BasicParserPool().apply {
-            maxPoolSize = 100
-            isCoalescing = true
-            isIgnoreComments = true
-            isIgnoreElementContentWhitespace = true
-            isNamespaceAware = true
-            isExpandEntityReferences = false
-            isXincludeAware = false
-        }
+        val parserPool =
+            BasicParserPool().apply {
+                maxPoolSize = 100
+                isCoalescing = true
+                isIgnoreComments = true
+                isIgnoreElementContentWhitespace = true
+                isNamespaceAware = true
+                isExpandEntityReferences = false
+                isXincludeAware = false
+            }
 
-        val features: Map<String, Boolean> = mapOf(
-            "http://xml.org/sax/features/external-general-entities" to false,
-            "http://xml.org/sax/features/external-parameter-entities" to false,
-            "http://apache.org/xml/features/disallow-doctype-decl" to true,
-            "http://apache.org/xml/features/validation/schema/normalized-value" to false,
-            "http://javax.xml.XMLConstants/feature/secure-processing" to true,
-        )
+        val features: Map<String, Boolean> =
+            mapOf(
+                "http://xml.org/sax/features/external-general-entities" to false,
+                "http://xml.org/sax/features/external-parameter-entities" to false,
+                "http://apache.org/xml/features/disallow-doctype-decl" to true,
+                "http://apache.org/xml/features/validation/schema/normalized-value" to false,
+                "http://javax.xml.XMLConstants/feature/secure-processing" to true,
+            )
         parserPool.setBuilderFeatures(features)
         parserPool.setBuilderAttributes(HashMap())
         try {
@@ -82,34 +88,20 @@ class SamlUtils(
         return parserPool
     }
 
-    inline fun <reified T : Any> unmarshallSAMLObject(clazz: Class<T>, responseMessage: String): T? {
-        try {
-            val documentBuilderFactory = DocumentBuilderFactory.newInstance()
-            documentBuilderFactory.isNamespaceAware = true
-            val docBuilder = documentBuilderFactory.newDocumentBuilder()
-            val document: Document = docBuilder.parse(ByteArrayInputStream(responseMessage.toByteArray()))
-            val unmarshallerFactory = XMLObjectProviderRegistrySupport.getUnmarshallerFactory()
-            val defaultElementName: QName = clazz.getDeclaredField("DEFAULT_ELEMENT_NAME")[null] as QName
-            val xmlObject =
-                unmarshallerFactory.getUnmarshaller(defaultElementName)?.unmarshall(document.documentElement)
-            return listOf(xmlObject).filterIsInstance<T>().firstOrNull()
-        } catch (e: Exception) {
-            throw e
-        }
-    }
-
     fun verifySignatureUsingSignatureValidator(signature: Signature) {
         // Set criterion to get relevant certificate
-        val criteriaSet = CriteriaSet().apply {
-            add(UsageCriterion(UsageType.SIGNING))
-            add(EntityRoleCriterion(IDPSSODescriptor.DEFAULT_ELEMENT_NAME))
-            add(ProtocolCriterion(SAMLConstants.SAML20P_NS))
-            add(EntityIdCriterion(senderEntityId))
-        }
+        val criteriaSet =
+            CriteriaSet().apply {
+                add(UsageCriterion(UsageType.SIGNING))
+                add(EntityRoleCriterion(IDPSSODescriptor.DEFAULT_ELEMENT_NAME))
+                add(ProtocolCriterion(SAMLConstants.SAML20P_NS))
+                add(EntityIdCriterion(metadataPath))
+            }
 
         // Resolve credential
-        val credential = metadataCredentialResolver.resolveSingle(criteriaSet)
-            ?: throw SecurityException("Criterion does not match entry in metadata file")
+        val credential =
+            metadataCredentialResolver!!.resolveSingle(criteriaSet)
+                ?: throw SecurityException("Criterion does not match entry in metadata file")
 
         // Verify signature format
         val profileValidator = SAMLSignatureProfileValidator()
@@ -119,19 +111,35 @@ class SamlUtils(
         SignatureValidator.validate(signature, credential)
     }
 
-    private fun getMetadataCredentialResolver(): MetadataCredentialResolver {
-        val metadataCredentialResolver = MetadataCredentialResolver()
-        val metadataFile = javaClass.classLoader.getResource(SENDER_METADATA_PATH)
-            ?.toURI()
-            ?.let { File(it) }
-            ?: throw FileNotFoundException("Metadata file was not found under path $SENDER_METADATA_PATH")
-        val metadataResolver = FilesystemMetadataResolver(metadataFile)
+    /**
+     * This function does not work in a static context, although it seems like it.
+     * Reason for this is that a registry needs to be instantiated.
+     */
+    fun unmarshallSAMLObject(responseMessage: String): Response? {
+        try {
+            val documentBuilderFactory = DocumentBuilderFactory.newInstance()
+            documentBuilderFactory.isNamespaceAware = true
+            val docBuilder = documentBuilderFactory.newDocumentBuilder()
+            val document: Document = docBuilder.parse(ByteArrayInputStream(responseMessage.toByteArray()))
+            val unmarshallerFactory = XMLObjectProviderRegistrySupport.getUnmarshallerFactory()
+            val defaultElementName: QName = Response::class.java.getDeclaredField("DEFAULT_ELEMENT_NAME")[null] as QName
+            val xmlObject =
+                unmarshallerFactory.getUnmarshaller(defaultElementName)?.unmarshall(document.documentElement)
+            return listOf(xmlObject).filterIsInstance<Response>().firstOrNull()
+        } catch (e: Exception) {
+            throw e
+        }
+    }
+
+    private fun getMetadataCredentialResolver(metadataResolver: AbstractReloadingMetadataResolver): MetadataCredentialResolver {
         metadataResolver.setId(metadataResolver.javaClass.canonicalName)
         metadataResolver.parserPool = getParserPool()
         metadataResolver.initialize()
         val roleResolver = PredicateRoleDescriptorResolver(metadataResolver)
-        val keyResolver = DefaultSecurityConfigurationBootstrap
-            .buildBasicInlineKeyInfoCredentialResolver()
+        val keyResolver =
+            DefaultSecurityConfigurationBootstrap
+                .buildBasicInlineKeyInfoCredentialResolver()
+        val metadataCredentialResolver = MetadataCredentialResolver()
         metadataCredentialResolver.keyInfoCredentialResolver = keyResolver
         metadataCredentialResolver.roleDescriptorResolver = roleResolver
         metadataCredentialResolver.initialize()
@@ -140,8 +148,6 @@ class SamlUtils(
     }
 
     companion object {
-        const val SENDER_METADATA_PATH = "saml/metadata.xml"
-
         fun decodeSAMLResponse(message: String): String =
             message
                 .substringAfter("SAMLResponse=")
@@ -151,11 +157,11 @@ class SamlUtils(
         fun getAttributeValuesByName(
             assertion: Assertion,
             attributeName: String,
-        ): List<XMLObject> {
-            return assertion.attributeStatements.flatMap { attrStmt ->
-                val attributes = attrStmt.attributes.filter { attr -> attr.name == attributeName }
-                attributes.map { it.attributeValues }
-            }.flatten()
-        }
+        ): List<XMLObject> =
+            assertion.attributeStatements
+                .flatMap { attrStmt ->
+                    val attributes = attrStmt.attributes.filter { attr -> attr.name == attributeName }
+                    attributes.map { it.attributeValues }
+                }.flatten()
     }
 }

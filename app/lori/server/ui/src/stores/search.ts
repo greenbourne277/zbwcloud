@@ -1,15 +1,17 @@
 import { defineStore } from "pinia";
 import { reactive, Ref, ref } from "vue";
 import {
-  AccessStateWithCountRest,
+  AccessStateWithCountRest, IsPartOfSeriesCountRest, LicenceUrlCountRest,
   PaketSigelWithCountRest,
   PublicationTypeWithCountRest,
   ZdbIdWithCountRest,
 } from "@/generated-sources/openapi";
-import {TemplateIdWithCountRest} from "@/generated-sources/openapi/models/TemplateIdWithCountRest";
+import { TemplateNameWithCountRest } from "@/generated-sources/openapi/models/TemplateNameWithCountRest";
 
 export const useSearchStore = defineStore("search", () => {
+  const searchTerm = ref("");
   const lastSearchTerm = ref("");
+  const isLastSearchForTemplates = ref(false);
 
   const accessStateIdx: Ref<Array<boolean>> = ref([]);
   const accessStateReceived: Ref<Array<AccessStateWithCountRest>> = ref([]);
@@ -41,22 +43,34 @@ export const useSearchStore = defineStore("search", () => {
   const publicationTypeSelectedLastSearch: Ref<Array<string>> = ref([]);
 
   const temporalEventState = reactive({
-    startDateOrEndDateValue: undefined as Date | undefined,
+    startDateOrEndDateFormattedValue: "",
     startDateOrEndDateOption: "",
   });
 
   const temporalValidityFilterFuture = ref(false);
   const temporalValidityFilterPresent = ref(false);
   const temporalValidityFilterPast = ref(false);
-  const temporalValidOn = ref(undefined as Date | undefined);
+  const temporalValidOnFormatted = ref("");
 
   const zdbIdIdx: Ref<Array<boolean>> = ref([]);
   const zdbIdReceived: Ref<Array<ZdbIdWithCountRest>> = ref([]);
   const zdbIdSelectedLastSearch: Ref<Array<string>> = ref([]);
 
-  const templateIdIdx: Ref<Array<boolean>> = ref([]);
-  const templateIdReceived: Ref<Array<TemplateIdWithCountRest>> = ref([]);
-  const templateIdSelectedLastSearch: Ref<Array<string>> = ref([]);
+  const templateNameIdx: Ref<Array<boolean>> = ref([]);
+  const templateNameReceived: Ref<Array<TemplateNameWithCountRest>> = ref([]);
+  const templateNameSelectedLastSearch: Ref<Array<string>> = ref([]);
+
+  const seriesIdx: Ref<Array<boolean>> = ref([]);
+  const seriesReceived: Ref<Array<IsPartOfSeriesCountRest>> = ref([]);
+  const seriesSelectedLastSearch: Ref<Array<string>> = ref([]);
+
+  const licenceUrlIdx: Ref<Array<boolean>> = ref([]);
+  const licenceUrlReceived: Ref<Array<LicenceUrlCountRest>> = ref([]);
+  const licenceUrlSelectedLastSearch: Ref<Array<string>> = ref([]);
+
+  // Deployment Stage
+  const stage = ref("");
+  const handleURLResolver = ref("");
 
   return {
     lastSearchTerm,
@@ -69,10 +83,15 @@ export const useSearchStore = defineStore("search", () => {
     formalRuleLicenceContract,
     formalRuleOpenContentLicence,
     formalRuleUserAgreement,
+    handleURLResolver,
     hasLicenceContract,
     hasOpenContentLicence,
     hasZbwUserAgreement,
     noRightInformation,
+    isLastSearchForTemplates,
+    licenceUrlIdx,
+    licenceUrlReceived,
+    licenceUrlSelectedLastSearch,
     paketSigelIdIdx,
     paketSigelIdReceived,
     paketSigelSelectedLastSearch,
@@ -81,14 +100,19 @@ export const useSearchStore = defineStore("search", () => {
     publicationTypeSelectedLastSearch,
     publicationDateFrom,
     publicationDateTo,
-    templateIdIdx,
-    templateIdReceived,
-    templateIdSelectedLastSearch,
+    searchTerm,
+    seriesIdx,
+    seriesReceived,
+    seriesSelectedLastSearch,
+    stage,
+    templateNameIdx,
+    templateNameReceived,
+    templateNameSelectedLastSearch,
     temporalEventState,
     temporalValidityFilterFuture,
     temporalValidityFilterPast,
     temporalValidityFilterPresent,
-    temporalValidOn,
+    temporalValidOnFormatted,
     zdbIdIdx,
     zdbIdReceived,
     zdbIdSelectedLastSearch,

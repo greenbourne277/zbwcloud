@@ -14,6 +14,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import org.hamcrest.CoreMatchers.`is`
@@ -33,39 +34,42 @@ class BookmarkTemplateRoutesKtTest {
     @Test
     fun testPostBookmarkTemplateCreated() {
         // given
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every {
-                insertBookmarkTemplatePair(
-                    bookmarkId = TEST_BOOKMARK_TEMPLATE.bookmarkId,
-                    templateId = TEST_BOOKMARK_TEMPLATE.templateId,
-                )
-            } returns 1
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery {
+                    insertBookmarkTemplatePair(
+                        bookmarkId = TEST_BOOKMARK_TEMPLATE.bookmarkId,
+                        rightId = TEST_BOOKMARK_TEMPLATE.rightId,
+                    )
+                } returns 1
+            }
         val servicePool = ItemRoutesKtTest.getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.post("/api/v1/bookmarktemplates") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE))
-            }
+            val response =
+                client.post("/api/v1/bookmarktemplates") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE))
+                }
             assertThat("Should return 201", response.status, `is`(HttpStatusCode.Created))
         }
 
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.post("/api/v1/bookmarktemplates") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE.copy(bookmarkId = 500)))
-            }
+            val response =
+                client.post("/api/v1/bookmarktemplates") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE.copy(bookmarkId = 500)))
+                }
             assertThat("Should return 500", response.status, `is`(HttpStatusCode.InternalServerError))
         }
     }
@@ -73,42 +77,46 @@ class BookmarkTemplateRoutesKtTest {
     @Test
     fun testPostBookmarkTemplateConflict() {
         // given
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every {
-                insertBookmarkTemplatePair(
-                    bookmarkId = TEST_BOOKMARK_TEMPLATE.bookmarkId,
-                    templateId = TEST_BOOKMARK_TEMPLATE.templateId,
-                )
-            } throws mockk<PSQLException> {
-                every { sqlState } returns ApiError.PSQL_CONFLICT_ERR_CODE
-                every { message } returns "error"
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery {
+                    insertBookmarkTemplatePair(
+                        bookmarkId = TEST_BOOKMARK_TEMPLATE.bookmarkId,
+                        rightId = TEST_BOOKMARK_TEMPLATE.rightId,
+                    )
+                } throws
+                    mockk<PSQLException> {
+                        every { sqlState } returns ApiError.PSQL_CONFLICT_ERR_CODE
+                        every { message } returns "error"
+                    }
             }
-        }
         val servicePool = ItemRoutesKtTest.getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.post("/api/v1/bookmarktemplates") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE))
-            }
+            val response =
+                client.post("/api/v1/bookmarktemplates") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE))
+                }
             assertThat("Should return 409", response.status, `is`(HttpStatusCode.Conflict))
         }
 
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.post("/api/v1/bookmarktemplates") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE.copy(bookmarkId = 500)))
-            }
+            val response =
+                client.post("/api/v1/bookmarktemplates") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE.copy(bookmarkId = 500)))
+                }
             assertThat("Should return 500", response.status, `is`(HttpStatusCode.InternalServerError))
         }
     }
@@ -116,43 +124,48 @@ class BookmarkTemplateRoutesKtTest {
     @Test
     fun testPostBookmarkTemplateDeleted() {
         // given
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every {
-                deleteBookmarkTemplatePair(
-                    bookmarkId = TEST_BOOKMARK_TEMPLATE.bookmarkId,
-                    templateId = TEST_BOOKMARK_TEMPLATE.templateId,
-                )
-            } returns 1
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery {
+                    deleteBookmarkTemplatePair(
+                        bookmarkId = TEST_BOOKMARK_TEMPLATE.bookmarkId,
+                        rightId = TEST_BOOKMARK_TEMPLATE.rightId,
+                    )
+                } returns 1
+            }
         val servicePool = ItemRoutesKtTest.getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response =
-                client.delete("/api/v1/bookmarktemplates?templateid=${TEST_BOOKMARK_TEMPLATE.templateId}&bookmarkid=${TEST_BOOKMARK_TEMPLATE.bookmarkId}")
+                client.delete(
+                    "/api/v1/bookmarktemplates?rightid=${TEST_BOOKMARK_TEMPLATE.rightId}&bookmarkid=${TEST_BOOKMARK_TEMPLATE.bookmarkId}",
+                )
             assertThat("Should return 200", response.status, `is`(HttpStatusCode.OK))
         }
 
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response =
-                client.delete("/api/v1/bookmarktemplates?bookmarkid=${TEST_BOOKMARK_TEMPLATE.templateId}&templateid=${TEST_BOOKMARK_TEMPLATE.bookmarkId}")
+                client.delete(
+                    "/api/v1/bookmarktemplates?bookmarkid=${TEST_BOOKMARK_TEMPLATE.rightId}&rightid=${TEST_BOOKMARK_TEMPLATE.bookmarkId}",
+                )
             assertThat("Should return 404", response.status, `is`(HttpStatusCode.NotFound))
         }
 
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response =
-                client.delete("/api/v1/bookmarktemplates?bookmarkid=foobar&templateid=${TEST_BOOKMARK_TEMPLATE.bookmarkId}")
+                client.delete("/api/v1/bookmarktemplates?bookmarkid=foobar&rightid=${TEST_BOOKMARK_TEMPLATE.bookmarkId}")
             assertThat("Should return 500", response.status, `is`(HttpStatusCode.InternalServerError))
         }
     }
@@ -160,24 +173,26 @@ class BookmarkTemplateRoutesKtTest {
     @Test
     fun testBatchDelete() {
         // given
-        var backend = mockk<LoriServerBackend>(relaxed = true) {
-            every {
-                deleteBookmarkTemplatePairs(TEST_BOOKMARK_TEMPLATE_BATCH.batch!!.map { it.toBusiness() })
-            } returns 1
-        }
+        var backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery {
+                    deleteBookmarkTemplatePairs(TEST_BOOKMARK_TEMPLATE_BATCH.batch!!.map { it.toBusiness() })
+                } returns 1
+            }
         var servicePool = ItemRoutesKtTest.getServicePool(backend)
 
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.delete("/api/v1/bookmarktemplates/batch") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE_BATCH))
-            }
+            val response =
+                client.delete("/api/v1/bookmarktemplates/batch") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE_BATCH))
+                }
             assertThat("Should return 200", response.status, `is`(HttpStatusCode.OK))
             val content: String = response.bodyAsText()
             val itemsDeleted: Type = object : TypeToken<Int>() {}.type
@@ -185,23 +200,25 @@ class BookmarkTemplateRoutesKtTest {
             assertThat(received, `is`(1))
         }
 
-        backend = mockk<LoriServerBackend>(relaxed = true) {
-            every {
-                deleteBookmarkTemplatePairs(TEST_BOOKMARK_TEMPLATE_BATCH.batch!!.map { it.toBusiness() })
-            } throws SQLException()
-        }
+        backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery {
+                    deleteBookmarkTemplatePairs(TEST_BOOKMARK_TEMPLATE_BATCH.batch!!.map { it.toBusiness() })
+                } throws SQLException()
+            }
         servicePool = ItemRoutesKtTest.getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.delete("/api/v1/bookmarktemplates/batch") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE_BATCH))
-            }
+            val response =
+                client.delete("/api/v1/bookmarktemplates/batch") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE_BATCH))
+                }
             assertThat("Should return 500", response.status, `is`(HttpStatusCode.InternalServerError))
         }
     }
@@ -209,24 +226,26 @@ class BookmarkTemplateRoutesKtTest {
     @Test
     fun testBatchPost() {
         // given
-        var backend = mockk<LoriServerBackend>(relaxed = true) {
-            every {
-                upsertBookmarkTemplatePairs(TEST_BOOKMARK_TEMPLATE_BATCH.batch!!.map { it.toBusiness() })
-            } returns listOf(TEST_BOOKMARK_TEMPLATE.toBusiness())
-        }
+        var backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery {
+                    upsertBookmarkTemplatePairs(TEST_BOOKMARK_TEMPLATE_BATCH.batch!!.map { it.toBusiness() })
+                } returns listOf(TEST_BOOKMARK_TEMPLATE.toBusiness())
+            }
         var servicePool = ItemRoutesKtTest.getServicePool(backend)
 
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.post("/api/v1/bookmarktemplates/batch") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE_BATCH))
-            }
+            val response =
+                client.post("/api/v1/bookmarktemplates/batch") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE_BATCH))
+                }
             assertThat("Should return 201", response.status, `is`(HttpStatusCode.Created))
             val content: String = response.bodyAsText()
             val pairsCreated: Type = object : TypeToken<Array<BookmarkTemplateRest>>() {}.type
@@ -237,45 +256,49 @@ class BookmarkTemplateRoutesKtTest {
                     listOf(
                         BookmarkTemplateRest(
                             bookmarkId = TEST_BOOKMARK_TEMPLATE.bookmarkId,
-                            templateId = TEST_BOOKMARK_TEMPLATE.templateId
-                        )
-                    )
-                )
+                            rightId = TEST_BOOKMARK_TEMPLATE.rightId,
+                        ),
+                    ),
+                ),
             )
         }
 
-        backend = mockk<LoriServerBackend>(relaxed = true) {
-            every {
-                upsertBookmarkTemplatePairs(TEST_BOOKMARK_TEMPLATE_BATCH.batch!!.map { it.toBusiness() })
-            } throws SQLException()
-        }
+        backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery {
+                    upsertBookmarkTemplatePairs(TEST_BOOKMARK_TEMPLATE_BATCH.batch!!.map { it.toBusiness() })
+                } throws SQLException()
+            }
         servicePool = ItemRoutesKtTest.getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.post("/api/v1/bookmarktemplates/batch") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE_BATCH))
-            }
+            val response =
+                client.post("/api/v1/bookmarktemplates/batch") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(ItemRoutesKtTest.jsonAsString(TEST_BOOKMARK_TEMPLATE_BATCH))
+                }
             assertThat("Should return 500", response.status, `is`(HttpStatusCode.InternalServerError))
         }
     }
 
     companion object {
-        val TEST_BOOKMARK_TEMPLATE = BookmarkTemplateRest(
-            bookmarkId = 10,
-            templateId = 15,
-        )
-
-        val TEST_BOOKMARK_TEMPLATE_BATCH = BookmarkTemplateBatchRest(
-            listOf(
-                TEST_BOOKMARK_TEMPLATE,
-                TEST_BOOKMARK_TEMPLATE,
+        val TEST_BOOKMARK_TEMPLATE =
+            BookmarkTemplateRest(
+                bookmarkId = 10,
+                rightId = "15",
             )
-        )
+
+        val TEST_BOOKMARK_TEMPLATE_BATCH =
+            BookmarkTemplateBatchRest(
+                listOf(
+                    TEST_BOOKMARK_TEMPLATE,
+                    TEST_BOOKMARK_TEMPLATE,
+                ),
+            )
     }
 }

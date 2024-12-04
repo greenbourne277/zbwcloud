@@ -1,6 +1,6 @@
 <script lang="ts">
 import { computed, defineComponent, onMounted, Ref, ref, watch } from "vue";
-import { BookmarkRest } from "@/generated-sources/openapi";
+import { BookmarkRest, RightRest } from "@/generated-sources/openapi";
 import bookmarkApi from "@/api/bookmarkApi";
 import error from "@/utils/error";
 import { useDialogsStore } from "@/stores/dialogs";
@@ -47,7 +47,7 @@ export default defineComponent({
         sortable: false,
       },
       {
-        title: "Suchanfrage ausführen",
+        title: "Suche ausführen",
         key: "executeSearch",
         align: "start",
         sortable: false,
@@ -86,6 +86,9 @@ export default defineComponent({
           bookmarkItems.value.splice(editIndex.value, 1);
           renderKey.value += 1;
           closeDeleteDialog();
+          alertSuccessful.value = true;
+          alertSuccessfulMsg.value =
+              "Bookmark '" + editBookmark.value.bookmarkName + "' wurde erfolgreich gelöscht.";
         })
         .catch((e) => {
           error.errorHandling(e, (errMsg: string) => {
@@ -94,6 +97,13 @@ export default defineComponent({
           });
           closeDeleteDialog();
         });
+    };
+
+    const copyToClipboard = (textToCopy: string | undefined) => {
+      if (textToCopy == undefined){
+        return;
+      }
+      navigator.clipboard.writeText(textToCopy);
     };
 
     const openDeleteDialog = (bookmark: BookmarkRest) => {
@@ -137,9 +147,10 @@ export default defineComponent({
       templateDialogActivated.value = false;
     };
 
-    const childTemplateAdded = () => {
+    const childTemplateAdded = (template: RightRest) => {
       alertSuccessful.value = true;
-      alertSuccessfulMsg.value = "Template has been created."; // TODO: Display Id
+      alertSuccessfulMsg.value =
+        "Template '" + template.templateName + "' wurde erfolgreich erstellt.";
     };
 
     /**
@@ -181,6 +192,7 @@ export default defineComponent({
       close,
       closeDeleteDialog,
       closeTemplateDialog,
+      copyToClipboard,
       deleteBookmarkEntry,
       executeBookmarkSearch,
       openDeleteDialog,
@@ -191,14 +203,30 @@ export default defineComponent({
 
 <style scoped></style>
 <template>
-  <v-card>
+  <v-card position="relative">
     <v-container>
-      <v-alert v-model="alertSuccessful" closable type="success">
-        {{ alertSuccessfulMsg }}
-      </v-alert>
-      <v-alert v-model="bookmarkError" closable type="error">
+      <v-snackbar
+          contained
+          multi-line
+          location="top"
+          timer="true"
+          timeout="10000"
+          v-model="bookmarkError"
+          color="error"
+      >
         {{ bookmarkErrorMsg }}
-      </v-alert>
+      </v-snackbar>
+      <v-snackbar
+          contained
+          multi-line
+          location="top"
+          timer="true"
+          timeout="10000"
+          v-model="alertSuccessful"
+          color="success"
+      >
+        {{ alertSuccessfulMsg }}
+      </v-snackbar>
       <v-card-title>Gespeicherte Suchen verwalten</v-card-title>
       <v-dialog v-model="confirmationDialog" max-width="500px">
         <v-card>
@@ -242,17 +270,42 @@ export default defineComponent({
           ></v-btn>
         </template>
         <template v-slot:item.executeSearch="{ item }">
-          <v-btn color="blue darken-1" text @click="executeBookmarkSearch(item)"
-            >Suchanfrage ausführen</v-btn
+          <v-btn color="blue darken-1" @click="executeBookmarkSearch(item)"
+            >Suche ausführen</v-btn
           >
         </template>
         <template v-slot:item.actions="{ item }">
-          <v-icon small @click="openDeleteDialog(item)"> mdi-delete </v-icon>
+          <v-btn
+              variant="text"
+              icon="mdi-eye"
+          >
+          <v-icon small>mdi-eye
+          </v-icon>
+            <v-overlay
+                activator="parent"
+                location="top center"
+                location-strategy="connected">
+              <v-card class="pa-2">
+                {{item.filtersAsQuery}}
+                <v-btn
+                    @click="copyToClipboard(item.filtersAsQuery)"
+                    icon="mdi-content-copy"
+                >
+                </v-btn>
+              </v-card>
+            </v-overlay>
+          </v-btn>
+          <v-btn
+              variant="text"
+              @click="openDeleteDialog(item)"
+              icon="mdi-delete"
+          >
+          </v-btn>
         </template>
       </v-data-table>
       <v-card-actions>
         <v-spacer></v-spacer>
-        <v-btn color="blue darken-1" text @click="close">Zurück</v-btn>
+        <v-btn color="blue darken-1" @click="close">Zurück</v-btn>
       </v-card-actions>
       <v-dialog
         v-model="templateDialogActivated"

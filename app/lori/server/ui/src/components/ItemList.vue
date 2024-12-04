@@ -1,10 +1,10 @@
 <script lang="ts">
 import {
+  AboutRest,
   AccessStateWithCountRest,
-  BookmarkRest,
+  BookmarkRest, IsPartOfSeriesCountRest,
   ItemInformation,
-  ItemRest,
-  MetadataRest,
+  ItemRest, LicenceUrlCountRest,
   PaketSigelWithCountRest,
   PublicationTypeWithCountRest,
   RightRest,
@@ -26,9 +26,20 @@ import TemplateOverview from "@/components/TemplateOverview.vue";
 import BookmarkOverview from "@/components/BookmarkOverview.vue";
 import templateApi from "@/api/templateApi";
 import RightsEditDialog from "@/components/RightsEditDialog.vue";
+import metadata_utils from "@/utils/metadata_utils";
+import {VResizeDrawer} from "@wdns/vuetify-resize-drawer";
+import Dashboard from "@/components/Dashboard.vue";
+import {useUserStore} from "@/stores/user";
 
 export default defineComponent({
+  computed: {
+    metadata_utils() {
+      return metadata_utils;
+    },
+  },
   components: {
+    Dashboard,
+    VResizeDrawer,
     RightsEditDialog,
     BookmarkOverview,
     TemplateOverview,
@@ -40,38 +51,22 @@ export default defineComponent({
   },
 
   setup() {
+    /**
+     * Stores:
+     */
+    const searchStore = useSearchStore();
+    const userStore = useUserStore();
+
+    /**
+     * Table:
+     */
     const items: Ref<Array<ItemRest>> = ref([]);
     const currentItem = ref({} as ItemRest);
     const headersValueVSelect = ref([]);
-    const selectedItems = ref([]);
-    const searchTerm = ref("");
+    const selectedItems: Ref<Array<string>> = ref([]);
     const tableContentLoading = ref(true);
-    const hintSearchField = ref(
-      "Syntax der Sucheingabe: keyword:'suchtext'; Erlaubte Keywords:" +
-        "com(Community), col(Collection), hdl (Handle Metadata), hdlcol (Handle Collection), hdlcom(Handle Community)," +
-        " hdlsubcom (Handle Subcommunity), metadataid(Metadata Id), sig(Paket-Sigel), tit(Titel), zdb(ZDB-Id)." +
-        " Negationen(!), Verundungen(&), Veroderungen(|) sowie Klammersetzungen sind zulässig, z.B.: col:'(subject1 | subject2) & !subject3'." +
-        "Wichtig: Zeichen die als logische Operatoren dienen, aber teil der Suche sein sollen, müssen escaped werden mit \\ " +
-        " (z.B. col:'EU & \\(European\\)')",
-    );
-
-    /**
-     * Error handling>
-     */
-    const hasSearchTokenWithNoKeyError = ref(false);
-    const hasSearchTokenWithNoKeyErrorMsg = ref("");
-    const invalidSearchKeyError = ref(false);
-    const invalidSearchKeyErrorMsg = ref("");
-    const loadAlertError = ref(false);
-    const loadAlertErrorMessage = ref("");
 
     const headers = [
-      {
-        title: "Metadata-Id",
-        align: "start",
-        sortable: false,
-        value: "metadataId",
-      },
       {
         title: "Titel",
         sortable: true,
@@ -148,26 +143,25 @@ export default defineComponent({
     const selectedHeaders = ref(headers.slice(0, 6));
 
     const currentPage = ref(1);
-    const pageSize = ref(25); // Default page size is 25
+    const currentRightId = ref("");
+    const pageSize = ref(10); // initial page size
     const pageSizes = ref<Array<number>>([5, 10, 25, 50]);
     const totalPages = ref(0);
     const numberOfResults = ref(0);
 
     // Page changes
-    const handlePageChange = (nextPage: number) => {
-      currentPage.value = nextPage;
+    const handlePageChange = () => {
       if (templateSearchIsActive.value) {
-        executeSearchByTemplateId();
+        executeSearchByRightId(currentRightId.value);
       } else {
         searchQuery();
       }
     };
 
-    const handlePageSizeChange = (size: number) => {
-      pageSize.value = size;
+    const handlePageSizeChange = () => {
       currentPage.value = 1;
       if (templateSearchIsActive.value) {
-        executeSearchByTemplateId();
+        executeSearchByRightId(currentRightId.value);
       } else {
         searchQuery();
       }
@@ -179,12 +173,12 @@ export default defineComponent({
      * Single Click
      */
     const addActiveItem = (mouseEvent: MouseEvent, row: any) => {
-      //row.select(true);
       const item: ItemRest | undefined = items.value.find(
-        (e) => e.metadata.metadataId === row.item.metadataId,
+        (e) => e.metadata.handle === row.item.handle,
       );
       if (item !== undefined) {
         currentItem.value = item;
+        selectedItems.value = [row.item.handle];
       }
     };
 
@@ -192,33 +186,36 @@ export default defineComponent({
     const setActiveItem = (mouseEvent: MouseEvent, row: any) => {
       //row.select(true);
       const item: ItemRest | undefined = items.value.find(
-        (e) => e.metadata.metadataId === row.item.metadataId,
+        (e) => e.metadata.handle === row.item.handle,
       );
       if (item !== undefined) {
         currentItem.value = item;
       }
       selectedItems.value = selectedItems.value.filter(
-        (e: MetadataRest) => e.metadataId == row.item.metadataId,
+        (e: string) => e == row.item.handle,
       );
     };
 
-    const getAlertLoad = () => {
-      return loadAlertError;
-    };
-
     onMounted(() => {
-      const hasTemplateParameter = loadTemplateView();
-      if (!hasTemplateParameter) {
-        loadRightView();
-      }
+      loadTemplateView()
       const hasMetadataParameter = loadMetadataView();
-      if (!hasMetadataParameter) {
+      const hasInitSearch = loadInitSearchQuery();
+      if (!hasMetadataParameter && !hasInitSearch) {
         startSearch();
       }
+      loadBackendParameters();
     });
 
     watch(headersValueVSelect, (currentValue) => {
       selectedHeaders.value = currentValue;
+    });
+
+    watch(currentPage, () => {
+      handlePageChange();
+    });
+
+    watch(pageSize, () => {
+      handlePageSizeChange();
     });
 
     // Initial Template View
@@ -228,7 +225,7 @@ export default defineComponent({
     const rightEditActivated = ref(false);
     const loadTemplateView: () => boolean = () => {
       const urlParams = new URLSearchParams(window.location.search);
-      const templateId: string | null = urlParams.get("templateId");
+      const templateId: string | null = urlParams.get(searchquerybuilder.QUERY_PARAMETER_TEMPLATE_ID);
       if (templateId == null || templateId == "") {
         return false;
       }
@@ -247,9 +244,19 @@ export default defineComponent({
       return true;
     };
 
+    const getRightPP: () => string | null = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const rightId: string | null = urlParams.get(searchquerybuilder.QUERY_PARAMETER_RIGHT_ID);
+      if (rightId == null || rightId == "") {
+        return null;
+      } else {
+        return rightId;
+      }
+    };
+
     const loadRightView: () => boolean = () => {
       const urlParams = new URLSearchParams(window.location.search);
-      const rightId: string | null = urlParams.get("rightId");
+      const rightId: string | null = urlParams.get(searchquerybuilder.QUERY_PARAMETER_RIGHT_ID);
       if (rightId == null || rightId == "") {
         return false;
       }
@@ -270,46 +277,93 @@ export default defineComponent({
 
     const loadMetadataView: () => boolean = () => {
       const urlParams = new URLSearchParams(window.location.search);
-      const metadataId: string | null = urlParams.get("metadataId");
-      if (metadataId == null || metadataId == "") {
+      const handle: string | null = urlParams.get(searchquerybuilder.QUERY_PARAMETER_HANDLE);
+      if (handle == null || handle == "") {
         return false;
       }
-      executeSearchByMetadataId("metadataId:" + metadataId);
+      searchQueryByTerm("hdl:" + handle, () => {});
       return true;
+    };
+
+    const loadInitSearchQuery: () => boolean = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const searchQuery: string | null = urlParams.get(searchquerybuilder.QUERY_PARAMETER_DASHBOARD_HANDLE_SEARCH);
+      if (searchQuery == null || searchQuery == "") {
+        return false;
+      }
+      startDashboardSearch(searchQuery)
+      return true;
+    };
+
+    const loadBackendParameters = () => {
+      api
+        .getAboutInformation()
+        .then((response: AboutRest) => {
+          searchStore.stage = response.stage;
+          searchStore.handleURLResolver = response.handleURL;
+          userStore.signInURL = response.duoSSO;
+          userStore.signOutURL = response.duoSLO;
+        })
+        .catch((e) => {
+          error.errorHandling(e, (errMsg: string) => {
+            tableContentLoading.value = false;
+            errorMsg.value = "Laden der bibliographischen Daten war nicht erfolgreich: " + errMsg;
+            errorMsgIsActive.value = true;
+          });
+        });
+    };
+
+    const startDashboardSearch = (searchTerm: string) => {
+      dialogStore.dashboardViewActivated = false;
+      searchQueryByTerm(searchTerm, () => {
+        if (items.value.length > 0){
+          currentItem.value = items.value[0]
+          selectedItems.value = [items.value[0].metadata.handle];
+          const rightIdToLoad = getRightPP();
+          if (rightIdToLoad == null){
+            return;
+          } else {
+            dialogStore.rightsEditTabsSelectedRight = rightIdToLoad;
+            dialogStore.rightsEditTabsActivated = true;
+          }
+        }
+      });
     };
 
     const closeTemplateEditDialog = () => {
       rightEditActivated.value = false;
     };
 
+    // Messages
+    const successMsgIsActive = ref(false);
+    const successMsg = ref("");
+    const errorMsgIsActive = ref(false);
+    const errorMsg = ref("");
+
     // Search
-    const searchStore = useSearchStore();
-
-    const alertIsActive = ref(false);
-    const alertMsg = ref("");
-
     const templateSearchIsActive = ref(false);
-    const currentTemplateId = ref(0);
-    const initSearchByTemplateId = (templateId: number) => {
+    const filtersAsQuery = ref("");
+    const initSearchByRightId = (rightId: string, templateName: string) => {
       templateSearchIsActive.value = true;
       currentPage.value = 1;
-      currentTemplateId.value = templateId;
+      currentRightId.value = templateName;
       closeTemplateOverview();
-      alertMsg.value =
-        "Alle gespeicherten Suchen für Template-ID " +
-        templateId +
+      successMsg.value =
+        "Alle gespeicherten Suchen für Template " +
+        "'" + templateName + " (" + rightId + ")'" +
         " wurden ausgeführt.";
-      alertIsActive.value = true;
-      executeSearchByTemplateId();
+      successMsgIsActive.value = true;
+      searchStore.isLastSearchForTemplates = true;
+      executeSearchByRightId(templateName);
     };
 
-    const executeSearchByTemplateId = () => {
+    const executeSearchByRightId = (rightId: string) => {
       api
         .searchQuery(
           "",
           (currentPage.value - 1) * pageSize.value, // offset
           pageSize.value, // limit
-          currentPage.value,
+          pageSize.value,
           undefined,
           undefined,
           undefined,
@@ -321,7 +375,9 @@ export default defineComponent({
           undefined,
           undefined,
           undefined,
-          currentTemplateId.value.toString(), // templateId
+            rightId,
+          undefined,
+            undefined,
         )
         .then((response: ItemInformation) => {
           processSearchResult(response);
@@ -329,13 +385,14 @@ export default defineComponent({
         .catch((e) => {
           error.errorHandling(e, (errMsg: string) => {
             tableContentLoading.value = false;
-            loadAlertErrorMessage.value = errMsg;
-            loadAlertError.value = true;
+            errorMsg.value = "Fehler beim Ausführen der Suche - " + errMsg;
+            errorMsgIsActive.value = true;
           });
         });
     };
 
-    const executeSearchByMetadataId = (searchTerm: string) => {
+    const searchQueryByTerm = (searchTerm: string, callback: () => void) => {
+      searchStore.isLastSearchForTemplates = false;
       api
         .searchQuery(
           searchTerm,
@@ -354,15 +411,18 @@ export default defineComponent({
           undefined,
           undefined,
           undefined,
+          undefined,
+            undefined,
         )
         .then((response: ItemInformation) => {
           processSearchResult(response);
+          callback();
         })
         .catch((e) => {
           error.errorHandling(e, (errMsg: string) => {
             tableContentLoading.value = false;
-            loadAlertErrorMessage.value = errMsg;
-            loadAlertError.value = true;
+            errorMsg.value = "Fehler beim Ausführen der Suche - " + errMsg;
+            errorMsgIsActive.value = true;
           });
         });
     };
@@ -379,32 +439,42 @@ export default defineComponent({
       searchquerybuilder.setEndDateAtFilter(searchStore, bookmark);
       searchquerybuilder.setValidOnFilter(searchStore, bookmark);
       searchquerybuilder.setNoRightInformationFilter(searchStore, bookmark);
-      searchquerybuilder.setTemplateIdFilter(searchStore, bookmark);
+      searchquerybuilder.setTemplateNameFilter(searchStore, bookmark);
+      searchquerybuilder.setSeriesFilter(searchStore, bookmark);
+      searchquerybuilder.setLicenceUrlFilter(searchStore, bookmark);
+      searchStore.searchTerm =
+        bookmark.searchTerm != undefined ? bookmark.searchTerm : "";
       closeBookmarkOverview();
-      alertMsg.value =
-        "Eine gespeicherte Suche '" +
-        bookmark.bookmarkName +
-        "' und wurde erfolgreich ausgeführt.";
-      alertIsActive.value = true;
+      successMsg.value =
+        "Die gespeicherte Suche " +
+        "'" + bookmark.bookmarkName + " (" + bookmark.bookmarkId + ")'" +
+        " wurde erfolgreich ausgeführt.";
+      successMsgIsActive.value = true;
+      startSearch();
+    };
+
+    const startEmptySearch = () => {
+      searchStore.searchTerm = "";
       startSearch();
     };
 
     const startSearch = () => {
       currentPage.value = 1;
-      if (searchTerm.value == undefined) {
-        searchTerm.value = "";
+      if (searchStore.searchTerm == undefined) {
+        searchStore.searchTerm = "";
       }
-      searchStore.lastSearchTerm = searchTerm.value;
-      invalidSearchKeyError.value = false;
-      hasSearchTokenWithNoKeyError.value = false;
+      searchStore.lastSearchTerm = searchStore.searchTerm;
+      searchStore.isLastSearchForTemplates = false;
       templateSearchIsActive.value = false;
+      currentRightId.value = "";
+      currentItem.value = {} as ItemRest;
       searchQuery();
     };
 
     const searchQuery = () => {
       api
         .searchQuery(
-          searchTerm.value,
+          searchStore.searchTerm,
           (currentPage.value - 1) * pageSize.value,
           pageSize.value,
           pageSize.value,
@@ -419,7 +489,9 @@ export default defineComponent({
           searchquerybuilder.buildPaketSigelIdFilter(searchStore),
           searchquerybuilder.buildZDBIdFilter(searchStore),
           searchquerybuilder.buildNoRightInformation(searchStore),
-          searchquerybuilder.buildTemplateIdFilter(searchStore),
+          searchquerybuilder.buildTemplateNameFilter(searchStore),
+          searchquerybuilder.buildSeriesFilter(searchStore),
+          searchquerybuilder.buildLicenceUrlFilter(searchStore),
         )
         .then((response: ItemInformation) => {
           processSearchResult(response);
@@ -427,30 +499,19 @@ export default defineComponent({
         .catch((e) => {
           error.errorHandling(e, (errMsg: string) => {
             tableContentLoading.value = false;
-            loadAlertErrorMessage.value = errMsg;
-            loadAlertError.value = true;
+            errorMsg.value = "Fehler beim Ausführen der Suche - " + errMsg;
+            errorMsgIsActive.value = true;
           });
         });
     };
 
     const processSearchResult = (response: ItemInformation) => {
+      filtersAsQuery.value = response.filtersAsQuery != undefined ? response.filtersAsQuery : "";
       items.value = response.itemArray;
       tableContentLoading.value = false;
       totalPages.value = response.totalPages;
       numberOfResults.value = response.numberOfResults;
-      if (response.invalidSearchKey?.length || 0 > 0) {
-        invalidSearchKeyErrorMsg.value =
-          "Die folgenden Suchkeys sind ungültig: " +
-            response.invalidSearchKey?.join(", ") || "";
-        invalidSearchKeyError.value = true;
-      }
 
-      if (response.hasSearchTokenWithNoKey == true) {
-        hasSearchTokenWithNoKeyErrorMsg.value =
-          "Mindestens ein Wort enthält keinen Suchkey." +
-          " Dieser Teil wird bei der Suche ignoriert.";
-        hasSearchTokenWithNoKeyError.value = true;
-      }
       // TODO: wird nur in abhängigkeit von ergebnis angezeigt
       if (response.paketSigelWithCount != undefined) {
         searchStore.paketSigelIdReceived = response.paketSigelWithCount;
@@ -510,6 +571,25 @@ export default defineComponent({
         },
       );
       searchStore.zdbIdIdx = reduceIdx(searchStore.zdbIdIdx);
+      searchStore.seriesReceived = searchStore.seriesSelectedLastSearch.map(
+          (elem: string) => {
+            return {
+              count: 0,
+              series: elem,
+            } as IsPartOfSeriesCountRest;
+          },
+      );
+      searchStore.seriesIdx = reduceIdx(searchStore.seriesIdx);
+
+      searchStore.licenceUrlIdx = searchStore.licenceUrlSelectedLastSearch.map(
+          (elem: string) => {
+            return {
+              count: 0,
+              series: elem,
+            } as LicenceUrlCountRest;
+          },
+      );
+      searchStore.licenceUrlIdx = reduceIdx(searchStore.licenceUrlIdx);
     };
 
     const reduceIdx = (idxMap: Array<boolean>): Array<boolean> => {
@@ -548,9 +628,7 @@ export default defineComponent({
       // Reset Publication Type
       searchStore.publicationTypeReceived =
         response.publicationTypeWithCount != undefined
-          ? response.publicationTypeWithCount.sort((a, b) =>
-              b.publicationType.localeCompare(a.publicationType),
-            )
+          ? response.publicationTypeWithCount
           : Array(0);
       searchStore.publicationTypeIdx = Array(
         searchStore.publicationTypeReceived.length,
@@ -569,22 +647,48 @@ export default defineComponent({
         false,
       );
       resetDynamicFilter(
-        searchStore.zdbIdReceived.map((e) => e.zdbId),
-        searchStore.zdbIdSelectedLastSearch,
-        searchStore.zdbIdIdx,
+          searchStore.zdbIdReceived.map((e) => e.zdbId),
+          searchStore.zdbIdSelectedLastSearch,
+          searchStore.zdbIdIdx,
       );
-      // Reset Template Id
-      searchStore.templateIdReceived =
-          response.templateIdWithCount != undefined
-              ? response.templateIdWithCount
+      // Reset Series
+      searchStore.seriesReceived =
+          response.isPartOfSeriesCount != undefined
+              ? response.isPartOfSeriesCount
               : Array(0);
-      searchStore.templateIdIdx = Array(searchStore.templateIdReceived.length).fill(
+      searchStore.seriesIdx = Array(searchStore.seriesReceived.length).fill(
           false,
       );
       resetDynamicFilter(
-          searchStore.templateIdReceived.map((e) => e.templateId),
-          searchStore.templateIdSelectedLastSearch,
-          searchStore.templateIdIdx,
+          searchStore.seriesReceived.map((e) => e.series),
+          searchStore.seriesSelectedLastSearch,
+          searchStore.seriesIdx,
+      );
+      // Reset Template Names
+      searchStore.templateNameReceived =
+        response.templateNameWithCount != undefined
+          ? response.templateNameWithCount
+          : Array(0);
+      searchStore.templateNameIdx = Array(
+        searchStore.templateNameReceived.length,
+      ).fill(false);
+      resetDynamicFilter(
+        searchStore.templateNameReceived.map((e) => e.templateName),
+        searchStore.templateNameSelectedLastSearch,
+        searchStore.templateNameIdx,
+      );
+      // Reset Licence Url
+      searchStore.licenceUrlReceived =
+          response.licenceUrlCount != undefined
+              ? response.licenceUrlCount
+              : Array(0);
+      searchStore.licenceUrlIdx = Array(
+          searchStore.licenceUrlReceived.length,
+      ).fill(false);
+      resetDynamicFilter(
+          searchStore.licenceUrlReceived.map((e) => e.licenceUrl),
+          searchStore.licenceUrlSelectedLastSearch,
+          searchStore.licenceUrlIdx,
       );
     };
 
@@ -602,38 +706,7 @@ export default defineComponent({
 
     // parse publication type
     const parsePublicationType = (pubType: string) => {
-      switch (pubType) {
-        case "article":
-          return "Article";
-        case "book":
-          return "Book";
-        case "bookPart":
-          return "Book Part";
-        case "book_part":
-          return "Book Part";
-        case "conferencePaper":
-          return "Conference Paper";
-        case "conference_paper":
-          return "Conference Paper";
-        case "periodicalPart":
-          return "Periodical Part";
-        case "periodical_part":
-          return "Periodical Part";
-        case "proceedings":
-          return "Proceedings";
-        case "researchReport":
-          return "Research Report";
-        case "research_report":
-          return "Research Report";
-        case "thesis":
-          return "Thesis";
-        case "workingPaper":
-          return "Working Paper";
-        case "working_paper":
-          return "Working Paper";
-        default:
-          return "Unknown pub type:" + pubType;
-      }
+      return metadata_utils.prettyPrintPublicationType(pubType);
     };
 
     /**
@@ -643,6 +716,9 @@ export default defineComponent({
 
     const closeBookmarkOverview = () => {
       dialogStore.bookmarkOverviewActivated = false;
+    };
+    const closeDashboard = () => {
+      dialogStore.dashboardViewActivated = false;
     };
     const closeGroupDialog = () => {
       dialogStore.groupOverviewActivated = false;
@@ -656,61 +732,71 @@ export default defineComponent({
       dialogStore.bookmarkSaveActivated = false;
     };
 
-    const bookmarkSuccessfulMsg = ref(false);
     const newBookmarkId = ref(-1);
-    const addBookmarkSuccessful = (bookmarkId: number) => {
+    const addBookmarkSuccessful = (bookmarkId: number, bookmarkName: string) => {
       newBookmarkId.value = bookmarkId;
-      bookmarkSuccessfulMsg.value = true;
+      successMsg.value = "Bookmark " +
+          "'" + bookmarkName + " (" + bookmarkId + ")'" +
+          " erfolgreich hinzugefügt."
+      successMsgIsActive.value = true;
     };
 
+    const searchHelpDialog = ref(false);
+
+    const selectedRowColor = (row: any) => {
+      if(selectedItems.value[0] !== undefined && selectedItems.value[0] == row.item.handle){
+        return { class: "bg-blue-lighten-4"}
+      }
+    };
+    const renderKey = ref(0);
+
     return {
-      alertIsActive,
-      alertMsg,
-      bookmarkSuccessfulMsg,
+      successMsgIsActive,
+      successMsg,
+      errorMsgIsActive,
+      errorMsg,
       currentItem,
       currentPage,
       queryParameterRight,
       dialogStore,
-      hasSearchTokenWithNoKeyError,
-      hasSearchTokenWithNoKeyErrorMsg,
       headers,
       headersValueVSelect,
-      hintSearchField,
+      filtersAsQuery,
       items,
-      invalidSearchKeyError,
-      invalidSearchKeyErrorMsg,
-      loadAlertError,
-      loadAlertErrorMessage,
       newBookmarkId,
       numberOfResults,
       pageSize,
       pageSizes,
-      searchTerm,
       searchStore,
       selectedHeaders,
       selectedItems,
+      searchHelpDialog,
       tableContentLoading,
       rightEditActivated,
       templateLoadError,
       templateLoadErrorMsg,
       totalPages,
+      renderKey,
       // Methods
       addActiveItem,
       addBookmarkSuccessful,
       closeBookmarkOverview,
       closeBookmarkSaveDialog,
+      closeDashboard,
       closeTemplateEditDialog,
       closeGroupDialog,
       closeTemplateOverview,
       executeBookmarkSearch,
-      initSearchByTemplateId,
-      getAlertLoad,
+      initSearchByRightId,
       handlePageChange,
       handlePageSizeChange,
       loadTemplateView,
       parsePublicationType,
       searchQuery,
+      startDashboardSearch,
+      selectedRowColor,
       setActiveItem,
+      startEmptySearch,
       startSearch,
     };
   },
@@ -721,9 +807,19 @@ export default defineComponent({
 :deep(tr.v-data-table__selected) {
   background: #7d92f5 !important;
 }
+table.special, th.special, td.special {
+  border:1px solid black;
+}
 </style>
 <template>
-  <v-container>
+  <VResizeDrawer permanent width="300px">
+        <SearchFilter
+            v-on:startEmptySearch="startEmptySearch"
+            v-on:startSearch="startSearch"
+        ></SearchFilter>
+  </VResizeDrawer>
+  <v-main class="d-flex align-center justify-center">
+  <v-card position="relative">
     <v-dialog
       v-model="dialogStore.groupOverviewActivated"
       :retain-focus="false"
@@ -749,7 +845,7 @@ export default defineComponent({
       v-on:close="closeTemplateOverview"
     >
       <TemplateOverview
-        v-on:getItemsByTemplateId="initSearchByTemplateId"
+        v-on:getItemsByRightId="initSearchByRightId"
       ></TemplateOverview>
     </v-dialog>
     <v-dialog
@@ -761,6 +857,14 @@ export default defineComponent({
       <BookmarkOverview
         v-on:executeBookmarkSearch="executeBookmarkSearch"
       ></BookmarkOverview>
+    </v-dialog>
+    <v-dialog
+        v-model="dialogStore.dashboardViewActivated"
+        :retain-focus="false"
+        max-width="1000px"
+        v-on:close="closeDashboard"
+    >
+      <Dashboard></Dashboard>
     </v-dialog>
     <v-dialog v-model="templateLoadError" max-width="1000">
       <v-card>
@@ -786,52 +890,254 @@ export default defineComponent({
         v-on:editRightClosed="closeTemplateEditDialog"
       ></RightsEditDialog>
     </v-dialog>
-    <v-row>
-      <v-col cols="2">
-        <SearchFilter></SearchFilter>
-      </v-col>
-      <v-col cols="6">
-        <v-card>
+        <v-card position="relative">
           <v-card-title>
             <v-text-field
-              v-model="searchTerm"
+              v-model="searchStore.searchTerm"
               append-icon="mdi-magnify"
               clearable
-              :hint="hintSearchField"
               label="Suche"
               variant="outlined"
-              persistent-hint
               single-line
               @click:append="startSearch"
               @keydown.enter.prevent="startSearch"
             ></v-text-field>
           </v-card-title>
+          <v-row
+              no-gutters
+              justify="space-around"
+          >
+            <v-col
+                cols="10"
+                offset="0"
+            >
+              <b>Aktive Filter:</b> {{ filtersAsQuery }}
+            </v-col>
+            <v-col
+              cols="1"
+            >
+            <v-dialog v-model="searchHelpDialog" max-width="600px">
+
+              <template v-slot:activator="{ props: activatorProps }">
+                <v-btn
+                  density="compact"
+                  icon="mdi-help"
+                  v-bind="activatorProps"
+                >
+                </v-btn>
+              </template>
+              <v-card
+              >
+                <template v-slot:actions>
+                  <v-spacer></v-spacer>
+                  <v-btn color="blue darken-1" @click="searchHelpDialog = false"> Zurück </v-btn>
+                </template>
+                <v-card-title class="text-h5">
+                  Syntax der Sucheingabe
+                </v-card-title>
+                <v-card-text>
+                  <p class="text-left text-body-1 font-weight-bold">Genereller Aufbau:</p>
+                  <p class="text-center text-body-2 bg-grey-lighten-2">
+                    suchschluessel1:"wert1" & suchschluessel2:"wert2"
+                  </p>
+                  <p class="text-left text-body-2 mt-1 mb-1">
+                    Das " kann auch durch ' ersetzt werden. Beides kann man
+                    weglassen wenn nur ein Wort gesucht wird.
+                  </p>
+                  <table class="special">
+                    <thead>
+                      <tr class=special>
+                        <th class=special>Suche</th>
+                        <th class=special>Suchschlüssel</th>
+                        <th class=special>Format</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr class=special>
+                        <td class=special>Titel</td>
+                        <td class=special>tit</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Handle des Items</td>
+                        <td class=special>hdl</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Community</td>
+                        <td class=special>com</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Handle Community</td>
+                        <td class=special>hdlcom</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Handle Subommunity</td>
+                        <td class=special>hdlsubcom</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Collection</td>
+                        <td class=special>col</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Handle Collection</td>
+                        <td class=special>hdlcol</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>ZDB-Id</td>
+                        <td class=special>zdb</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Paket-Sigel</td>
+                        <td class=special>sig</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Lizenz URL</td>
+                        <td class=special>lur</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Series</td>
+                        <td class=special>ser</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Template Namen</td>
+                        <td class=special>tpl</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Publikationsjahr</td>
+                        <td class=special>jah</td>
+                        <td class=special>Begin-Ende</td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Publikationstyp</td>
+                        <td class=special>typ</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Access</td>
+                        <td class=special>acc</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Zeitliche Gültigkeit am</td>
+                        <td class=special>zgp</td>
+                        <td class=special>YYYY-MM-DD</td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Zeitliche Gültigkeit Beginn</td>
+                        <td class=special>zgb</td>
+                        <td class=special>YYYY-MM-DD</td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Zeitliche Gültigkeit Ende</td>
+                        <td class=special>zge</td>
+                        <td class=special>YYYY-MM-DD</td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Zeitliche Gültigkeit Abschnitte</td>
+                        <td class=special>zga</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Formale Regelungen</td>
+                        <td class=special>reg</td>
+                        <td class=special></td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Keine Rechteeinträge</td>
+                        <td class=special>nor</td>
+                        <td class=special>nor:on</td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <p class="text-left text-body-1 mt-4 font-weight-bold">
+                    Bool'sche Operatoren
+                  </p>
+                  <table class="special">
+                    <thead>
+                      <tr class=special>
+                        <th class=special> </th>
+                        <th class=special> </th>
+                        <th class=special>Beispiele</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr class=special>
+                        <td class=special>Und</td>
+                        <td class=special>&</td>
+                        <td class=special>col:'Economics & series'</td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Nicht</td>
+                        <td class=special>!</td>
+                        <td class=special>
+                          !hdl:'1234' <br>
+                          !(hdl:'1234' | tit:'geopolitical') <br>
+                          col:'department' & !tit:'geopolitical'
+                        </td>
+                      </tr>
+                      <tr class=special>
+                        <td class=special>Oder</td>
+                        <td class=special>|</td>
+                        <td class=special>col:'Economics' | ser:'some series'</td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <p class="text-left text-body-2 mt-1 mb-1">
+                    Es ist möglich die verschiedenen Operatoren in einem Term
+                    zu verwenden und mittels Klammern zu strukturieren.
+                  </p>
+
+                  <p class="text-center text-body-2 bg-grey-lighten-2 mt-1 mb-1">
+                    Beispiel: col:"subject1" | (hdl:"handle" & !com:"community")
+                  </p>
+                  <p class="text-left text-body-1 mt-4">Sonderzeichen:</p>
+
+                  <p class="text-left text-body-2 mt-1 mb-1">
+                    Klammersetzungen sind zulässig, z.B:
+                  </p>
+                  <p class="text-center text-body-2 bg-grey-lighten-2 mt-1 mb-1">
+                    col:'(subject1 | subject2) & !subject3'
+                  </p>
+                </v-card-text>
+              </v-card>
+            </v-dialog>
+            </v-col>
+          </v-row>
           <v-spacer></v-spacer>
-          <v-alert v-model="loadAlertError" closable type="error">
-            Laden der bibliographischen Daten war nicht erfolgreich:
-            {{ loadAlertErrorMessage }}
-          </v-alert>
-          <v-alert v-model="invalidSearchKeyError" closable type="error">
-            {{ invalidSearchKeyErrorMsg }}
-          </v-alert>
-          <v-alert v-model="hasSearchTokenWithNoKeyError" closable type="error">
-            {{ hasSearchTokenWithNoKeyErrorMsg }}
-          </v-alert>
-          <v-alert
-            v-model="bookmarkSuccessfulMsg"
-            closable
-            text="Bookmark erfolgreich hinzugefügt mit Id {{ newBookmarkId.toString() }}."
-            type="success"
+          <v-snackbar
+            multi-line
+            location="top"
+            timer="true"
+            timeout="10000"
+            v-model="errorMsgIsActive"
+            color="error"
           >
-          </v-alert>
-          <v-alert
-            v-model="alertIsActive"
-            closable
-            text
-            type="success"
+            {{ errorMsg }}
+          </v-snackbar>
+          <v-snackbar
+              multi-line
+              location="top"
+              timer="true"
+              timeout="10000"
+              v-model="successMsgIsActive"
+              color="success"
           >
-            {{ alertMsg }}
-          </v-alert>
+            {{ successMsg }}
+          </v-snackbar>
+
           <v-select
             v-model="headersValueVSelect"
             :items="headers"
@@ -841,7 +1147,7 @@ export default defineComponent({
           >
             <template v-slot:selection="{ item, index }">
               <v-chip v-if="index === 0">
-                <span>{{ item.text }}</span>
+                <span>{{ item.title }}</span>
               </v-chip>
               <span v-if="index === 1" class="grey--text caption"
                 >(+{{ headersValueVSelect.length - 1 }} others)</span
@@ -853,27 +1159,39 @@ export default defineComponent({
           <v-data-table
             v-model="selectedItems"
             :headers="selectedHeaders"
-            :hide-default-footer="true"
             :items="items.map((value) => value.metadata)"
-            disable-pagination
-            item-value="metadataId"
+            :items-per-page="0"
+            item-value="handle"
             :loading="tableContentLoading"
+            :key="renderKey"
+            :row-props="selectedRowColor"
             loading-text="Daten werden geladen... Bitte warten."
             show-select
+            select-strategy="single"
+            height="550px"
             @click:row="addActiveItem"
             @dblclick:row="setActiveItem"
           >
             <template v-slot:item.handle="{ item }">
               <td>
-                <a :href="item.handle">{{ item.handle }}</a>
+                <a
+                  v-bind:href="
+                    metadata_utils.hrefHandle(
+                      item.handle,
+                      searchStore.handleURLResolver,
+                    )
+                  "
+                  >{{ metadata_utils.shortenHandle(item.handle) }}</a
+                >
               </td>
             </template>
             <template v-slot:item.publicationType="{ item }">
               <td>{{ parsePublicationType(item.publicationType) }}</td>
             </template>
             <template v-slot:item.publicationDate="{ item }">
-              <td>{{ item.publicationDate.toLocaleDateString("de") }}</td>
+              <td v-if="item.publicationDate != undefined">{{ item.publicationDate.toLocaleDateString("de") }}</td>
             </template>
+            <template #bottom></template>
           </v-data-table>
           <v-col cols="14" sm="12">
             <v-row>
@@ -882,7 +1200,6 @@ export default defineComponent({
                   v-model="pageSize"
                   :items="pageSizes"
                   label="Einträge pro Seite"
-                  @change="handlePageSizeChange"
                 ></v-select>
               </v-col>
               <v-col cols="10" sm="9">
@@ -892,25 +1209,24 @@ export default defineComponent({
                   next-icon="mdi-menu-right"
                   prev-icon="mdi-menu-left"
                   total-visible="7"
-                  @input="handlePageChange"
                 ></v-pagination>
               </v-col>
             </v-row>
           </v-col>
         </v-card>
-      </v-col>
-      <v-col cols="4">
-        <v-card v-if="currentItem.metadata" class="mx-auto" tile>
-          <RightsView
+
+  </v-card>
+  </v-main>
+  <VResizeDrawer location="right" width="400px" permanent>
+      <v-card v-if="currentItem.metadata" class="mx-auto" tile>
+        <RightsView
             :handle="currentItem.metadata.handle"
-            :metadataId="currentItem.metadata.metadataId"
             :rights="currentItem.rights"
-          ></RightsView>
-          <MetadataView
+            :title="currentItem.metadata.title"
+        ></RightsView>
+        <MetadataView
             :metadata="Object.assign({}, currentItem.metadata)"
-          ></MetadataView>
-        </v-card>
-      </v-col>
-    </v-row>
-  </v-container>
+        ></MetadataView>
+      </v-card>
+  </VResizeDrawer>
 </template>

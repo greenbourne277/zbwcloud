@@ -7,16 +7,19 @@ package de.zbw.business.lori.server.type
  * @author Christian Bay (c.bay@zbw.eu)
  */
 data class SearchQueryResult(
-    val numberOfResults: Int, // Number of all search results
-    val results: List<Item>, // Results determined by offset and limit
+    // Number of all search results
+    val numberOfResults: Int,
+    // Results determined by offset and limit
+    val results: List<Item>,
     val accessState: Map<AccessState, Int>,
-    val invalidSearchKey: List<String>,
     val hasLicenceContract: Boolean,
     val hasOpenContentLicence: Boolean,
-    val hasSearchTokenWithNoKey: Boolean,
     val hasZbwUserAgreement: Boolean,
+    val isPartOfSeries: Map<String, Int>,
+    val licenceUrl: Map<String, Int>,
     val paketSigels: Map<String, Int>,
     val publicationType: Map<PublicationType, Int>,
-    val templateIds: Map<Int, Pair<String, Int>>,
+    val filtersAsQuery: String,
+    val templateNamesToOcc: Map<String, Pair<String, Int>>,
     val zdbIds: Map<String, Int>,
 )

@@ -25,22 +25,26 @@ ItemInformation:
       type: array
       items:
         $ref: 'item.model.yaml#/PublicationTypeWithCountRest'
-    templateIdWithCount:
+    templateNameWithCount:
       type: array
       items:
-        $ref: 'item.model.yaml#/TemplateIdWithCountRest'
+        $ref: 'item.model.yaml#/TemplateNameWithCountRest'
+    isPartOfSeriesCount:
+      type: array
+      items:
+        $ref: 'item.model.yaml#/IsPartOfSeriesCountRest'
+    licenceUrlCount:
+      type: array
+      items:
+        $ref: 'item.model.yaml#/LicenceUrlCountRest'
     hasLicenceContract:
       type: boolean
     hasOpenContentLicence:
       type: boolean
     hasZbwUserAgreement:
       type: boolean
-    hasSearchTokenWithNoKey:
-      type: boolean
-    invalidSearchKey:
-      type: array
-      items:
-        type: string
+    filtersAsQuery:
+      type: string
     itemArray:
       type: array
       items:
@@ -61,11 +65,11 @@ ItemRest:
 
 ItemEntry:
   required:
-    - metadataId
+    - handle
     - rightId
   type: object
   properties:
-    metadataId:
+    handle:
       type: string
     rightId:
       type: string
@@ -114,6 +118,30 @@ ZdbIdWithCountRest:
     zdbId:
       type: string
 
+IsPartOfSeriesCountRest:
+  required:
+    - count
+    - series
+  type: object
+  properties:
+    count:
+      type: integer
+    series:
+      type: string
+
+LicenceUrlCountRest:
+  required:
+    - count
+    - licenceUrl
+  type: object
+  properties:
+    count:
+      type: integer
+    licenceUrl:
+      type: string
+
+
+
 PublicationTypeWithCountRest:
   required:
     - count
@@ -125,16 +153,13 @@ PublicationTypeWithCountRest:
     publicationType:
       $ref: 'metadata.model.yaml#/PublicationTypeRest'
 
-TemplateIdWithCountRest:
+TemplateNameWithCountRest:
   required:
     - count
-    - templateId
     - templateName
   type: object
   properties:
     count:
       type: integer
-    templateId:
-      type: string
     templateName:
       type: string

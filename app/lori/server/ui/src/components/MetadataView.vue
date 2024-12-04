@@ -1,8 +1,15 @@
 <script lang="ts">
 import { MetadataRest } from "@/generated-sources/openapi";
 import { computed, defineComponent, PropType } from "vue";
+import metadata_utils from "@/utils/metadata_utils";
+import { useSearchStore } from "@/stores/search";
 
 export default defineComponent({
+  computed: {
+    metadata_utils() {
+      return metadata_utils;
+    },
+  },
   props: {
     metadata: {
       type: Object as PropType<MetadataRest>,
@@ -11,7 +18,8 @@ export default defineComponent({
   },
 
   setup(props) {
-    const prettyPrint = (value: string) => {
+    const searchStore = useSearchStore();
+    const prettyPrint = (value: string | undefined) => {
       if (value) {
         return value;
       } else {
@@ -26,14 +34,29 @@ export default defineComponent({
       }
     };
 
+    const prettyPrintPublicationDate = (d: Date | undefined) => {
+          if (d === undefined) {
+            return "Nicht verfügbar";
+          } else {
+            return d.toLocaleDateString("de");
+          }
+    };
+
     const currentMetadata = computed(() => {
       return props.metadata;
     });
 
+    const parsePublicationType = (pubType: string) => {
+      return metadata_utils.prettyPrintPublicationType(pubType);
+    };
+
     return {
       currentMetadata,
+      searchStore,
       prettyPrint,
       parseDateToLocaleString,
+      parsePublicationType,
+      prettyPrintPublicationDate,
     };
   },
 });
@@ -41,7 +64,7 @@ export default defineComponent({
 
 <style scoped></style>
 <template>
-  <v-card v-if="currentMetadata.metadataId" class="mx-auto" tile>
+  <v-card v-if="currentMetadata.handle" class="mx-auto" tile>
     <v-card-title class="subheading font-weight-bold">Metadaten</v-card-title>
     <v-divider></v-divider>
     <v-expansion-panels focusable multiple>
@@ -51,19 +74,68 @@ export default defineComponent({
         </v-expansion-panel-title>
         <v-expansion-panel-text>
           <v-container>
-            <v-row>
-              <v-col>Id</v-col>
-              <v-col>{{ prettyPrint(currentMetadata.metadataId) }}</v-col>
+            <v-row v-show="currentMetadata.handle">
+              <v-col>Item-Handle</v-col>
+              <v-col>
+                <td>
+                  <a
+                    v-bind:href="
+                      metadata_utils.hrefHandle(
+                        currentMetadata.handle,
+                        searchStore.handleURLResolver,
+                      )
+                    "
+                    >{{
+                      metadata_utils.shortenHandle(currentMetadata.handle)
+                    }}</a
+                  >
+                </td>
+              </v-col>
               <v-col></v-col>
             </v-row>
             <v-row v-show="currentMetadata.collectionName">
-              <v-col>Collectionsname</v-col>
-              <v-col>{{ prettyPrint(currentMetadata.collectionName) }}</v-col>
+              <v-col>Collection</v-col>
+              <v-col
+                >{{ prettyPrint(currentMetadata.collectionName) }} (<a
+                  v-bind:href="
+                    metadata_utils.prependHandleUrl(
+                      currentMetadata.collectionHandle,
+                      searchStore.handleURLResolver,
+                    )
+                  "
+                  >{{ currentMetadata.collectionHandle }}</a
+                >)
+              </v-col>
+              <v-col></v-col>
+            </v-row>
+            <v-row v-show="currentMetadata.subCommunityHandle">
+              <v-col>Subcommunity</v-col>
+              <v-col
+                >{{ prettyPrint(currentMetadata.subCommunityName) }} (<a
+                  v-bind:href="
+                    metadata_utils.prependHandleUrl(
+                      currentMetadata.subCommunityHandle,
+                      searchStore.handleURLResolver,
+                    )
+                  "
+                  >{{ currentMetadata.subCommunityHandle }}</a
+                >)
+              </v-col>
               <v-col></v-col>
             </v-row>
             <v-row v-show="currentMetadata.communityName">
-              <v-col>Communityname</v-col>
-              <v-col>{{ prettyPrint(currentMetadata.communityName) }}</v-col>
+              <v-col>Community</v-col>
+              <v-col
+                >{{ prettyPrint(currentMetadata.communityName) }} (<a
+                  v-bind:href="
+                    metadata_utils.prependHandleUrl(
+                      currentMetadata.communityHandle,
+                      searchStore.handleURLResolver,
+                    )
+                  "
+                  >{{ currentMetadata.communityHandle }}</a
+                >)
+              </v-col>
               <v-col></v-col>
             </v-row>
             <v-row v-show="currentMetadata.storageDate">
@@ -73,13 +145,7 @@ export default defineComponent({
               }}</v-col>
               <v-col></v-col>
             </v-row>
-            <v-row v-show="currentMetadata.subCommunitiesHandles">
-              <v-col>Subcommunity Handle-Ids</v-col>
-              <v-col>{{
-                prettyPrint(currentMetadata.subCommunitiesHandles)
-              }}</v-col>
-              <v-col></v-col>
-            </v-row>
+            <v-col></v-col>
           </v-container>
         </v-expansion-panel-text>
       </v-expansion-panel>
@@ -106,59 +172,21 @@ export default defineComponent({
             </v-row>
             <v-row>
               <v-col>Publikationstyp</v-col>
-              <v-col>{{ currentMetadata.publicationType }}</v-col>
+              <v-col>{{
+                parsePublicationType(currentMetadata.publicationType)
+              }}</v-col>
               <v-col></v-col>
             </v-row>
             <v-row>
               <v-col>Publikationsjahr</v-col>
               <v-col>{{
-                currentMetadata.publicationDate.toLocaleDateString("de")
+                prettyPrintPublicationDate(currentMetadata.publicationDate)
               }}</v-col>
               <v-col></v-col>
             </v-row>
             <v-row v-show="currentMetadata.doi">
               <v-col>DOI</v-col>
               <v-col>{{ prettyPrint(currentMetadata.doi) }}</v-col>
-              <v-col></v-col>
-            </v-row>
-            <v-row v-show="currentMetadata.handle">
-              <v-col>Handle</v-col>
-              <v-col>
-                <td>
-                  <a :href="currentMetadata.handle">{{
-                    currentMetadata.handle
-                  }}</a>
-                </td>
-              </v-col>
-              <v-col></v-col>
-            </v-row>
-            <v-row v-show="currentMetadata.collectionHandle">
-              <v-col>Collection Handle</v-col>
-              <v-col>
-                <td>
-                  <a
-                    :href="
-                      'http://hdl.handle.net/' +
-                      currentMetadata.collectionHandle
-                    "
-                    >{{ currentMetadata.collectionHandle }}</a
-                  >
-                </td>
-              </v-col>
-              <v-col></v-col>
-            </v-row>
-            <v-row v-show="currentMetadata.communityHandle">
-              <v-col>Community Handle</v-col>
-              <v-col>
-                <td>
-                  <a
-                    :href="
-                      'http://hdl.handle.net/' + currentMetadata.communityHandle
-                    "
-                    >{{ currentMetadata.communityHandle }}</a
-                  >
-                </td>
-              </v-col>
               <v-col></v-col>
             </v-row>
             <v-row v-show="currentMetadata.isbn">
@@ -174,11 +202,6 @@ export default defineComponent({
             <v-row v-show="currentMetadata.rightsK10plus">
               <v-col>Zugriffsrecht K10Plus</v-col>
               <v-col>{{ prettyPrint(currentMetadata.rightsK10plus) }}</v-col>
-              <v-col></v-col>
-            </v-row>
-            <v-row v-show="currentMetadata.serialNumber">
-              <v-col>Seriennummer</v-col>
-              <v-col>{{ prettyPrint(currentMetadata.serialNumber) }}</v-col>
               <v-col></v-col>
             </v-row>
             <v-row v-show="currentMetadata.issn">
@@ -201,9 +224,19 @@ export default defineComponent({
               <v-col>{{ prettyPrint(currentMetadata.titleSeries) }}</v-col>
               <v-col></v-col>
             </v-row>
-            <v-row v-show="currentMetadata.zdbId">
-              <v-col>ZDB Id</v-col>
-              <v-col>{{ prettyPrint(currentMetadata.zdbId) }}</v-col>
+            <v-row v-show="currentMetadata.zdbIdJournal">
+              <v-col>ZDB-ID (Zeitschrift)</v-col>
+              <v-col>{{ prettyPrint(currentMetadata.zdbIdJournal) }}</v-col>
+              <v-col></v-col>
+            </v-row>
+            <v-row v-show="currentMetadata.zdbIdSeries">
+              <v-col>ZDB-ID (Serie)</v-col>
+              <v-col>{{ prettyPrint(currentMetadata.zdbIdSeries) }}</v-col>
+              <v-col></v-col>
+            </v-row>
+            <v-row v-show="currentMetadata.licenceUrl">
+              <v-col>OC-/CC-Lizenz-URL</v-col>
+              <v-col>{{ prettyPrint(currentMetadata.licenceUrl) }}</v-col>
               <v-col></v-col>
             </v-row>
           </v-container>

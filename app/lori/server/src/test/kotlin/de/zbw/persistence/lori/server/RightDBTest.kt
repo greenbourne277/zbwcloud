@@ -1,23 +1,23 @@
 package de.zbw.persistence.lori.server
 
 import de.zbw.business.lori.server.type.AccessState
+import de.zbw.business.lori.server.type.BasisAccessState
+import de.zbw.business.lori.server.type.BasisStorage
 import de.zbw.business.lori.server.type.ItemRight
 import de.zbw.persistence.lori.server.ItemDBTest.Companion.NOW
 import de.zbw.persistence.lori.server.ItemDBTest.Companion.TEST_RIGHT
 import io.mockk.every
-import io.mockk.mockk
 import io.mockk.mockkStatic
-import io.mockk.spyk
 import io.mockk.unmockkAll
 import io.opentelemetry.api.OpenTelemetry
-import io.opentelemetry.api.trace.Tracer
+import kotlinx.coroutines.runBlocking
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.MatcherAssert.assertThat
+import org.postgresql.util.PSQLException
+import org.testng.Assert
 import org.testng.annotations.AfterMethod
 import org.testng.annotations.BeforeMethod
 import org.testng.annotations.Test
-import java.sql.SQLException
-import java.sql.Statement
 import java.time.Instant
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -29,10 +29,11 @@ import kotlin.test.assertTrue
  * @author Christian Bay (c.bay@zbw.eu)
  */
 class RightDBTest : DatabaseTest() {
-    private val dbConnector = DatabaseConnector(
-        connection = dataSource.connection,
-        tracer = OpenTelemetry.noop().getTracer("foo"),
-    )
+    private val dbConnector =
+        DatabaseConnector(
+            connectionPool = ConnectionPool(testDataSource),
+            tracer = OpenTelemetry.noop().getTracer("foo"),
+        )
 
     @BeforeMethod
     fun beforeTest() {
@@ -45,79 +46,196 @@ class RightDBTest : DatabaseTest() {
         unmockkAll()
     }
 
-    @Test(expectedExceptions = [IllegalStateException::class])
-    fun testInsertRightNoRowInsertedError() {
-        // given
-        val prepStmt = spyk(dbConnector.connection.prepareStatement(RightDB.STATEMENT_INSERT_RIGHT)) {
-            every { executeUpdate() } returns 0
+    @Test
+    fun testRightRoundtrip() =
+        runBlocking {
+            // given
+            val initialRight = TEST_RIGHT
+
+            // Insert
+            // when
+            val generatedRightId = dbConnector.rightDB.insertRight(initialRight)
+            val receivedRights: List<ItemRight> = dbConnector.rightDB.getRightsByIds(listOf(generatedRightId))
+
+            // then
+            assertThat(receivedRights.first(), `is`(initialRight.copy(rightId = generatedRightId, lastAppliedOn = null)))
+            assertTrue(dbConnector.rightDB.rightContainsId(generatedRightId))
+
+            // upsert
+
+            // given
+            val updatedRight =
+                TEST_UPDATED_RIGHT.copy(
+                    rightId = generatedRightId,
+                )
+            mockkStatic(Instant::class)
+            every { Instant.now() } returns NOW.plusDays(1).toInstant()
+
+            // when
+            val updatedRights = dbConnector.rightDB.upsertRight(updatedRight)
+
+            // then
+            assertThat(updatedRights, `is`(1))
+            val receivedUpdatedRights: List<ItemRight> = dbConnector.rightDB.getRightsByIds(listOf(generatedRightId))
+            assertThat(
+                receivedUpdatedRights.first(),
+                `is`(updatedRight.copy(lastUpdatedOn = NOW.plusDays(1), lastAppliedOn = null)),
+            )
+
+            // delete
+            // when
+            val deletedItems = dbConnector.rightDB.deleteRightsByIds(listOf(generatedRightId))
+
+            // then
+            assertThat(deletedItems, `is`(1))
+
+            // when + then
+            assertThat(dbConnector.rightDB.getRightsByIds(listOf(generatedRightId)), `is`(emptyList()))
+            assertFalse(dbConnector.rightDB.rightContainsId(generatedRightId))
         }
-        val dbConnectorMockked = DatabaseConnector(
-            mockk(relaxed = true) {
-                every { prepareStatement(any(), Statement.RETURN_GENERATED_KEYS) } returns prepStmt
-            },
-            tracer,
-            mockk(),
-        )
-        // when
-        dbConnectorMockked.rightDB.insertRight(TEST_RIGHT)
-        // then exception
-    }
 
     @Test
-    fun testRightRoundtrip() {
-        // given
-        val initialRight = TEST_RIGHT
+    fun testGetRightsByTemplateName() =
+        runBlocking {
+            val templateName1 = "foobar"
+            val templateName2 = "baz"
+            val rightId1 = dbConnector.rightDB.insertRight(TEST_RIGHT.copy(isTemplate = true, templateName = templateName1))
+            val rightId2 = dbConnector.rightDB.insertRight(TEST_RIGHT.copy(isTemplate = true, templateName = templateName2))
+            val receivedRightIds =
+                dbConnector.rightDB
+                    .getRightsByTemplateNames(listOf(templateName2, templateName1))
+                    .map { it.rightId }
+                    .toSet()
 
-        // Insert
-        // when
-        val generatedRightId = dbConnector.rightDB.insertRight(initialRight)
-        val receivedRights: List<ItemRight> = dbConnector.rightDB.getRightsByIds(listOf(generatedRightId))
+            assertThat(
+                receivedRightIds,
+                `is`(setOf(rightId1, rightId2)),
+            )
+            // Clean up for other tests
+            dbConnector.rightDB.deleteRightsByIds(listOf(rightId2, rightId1))
+        }
 
-        // then
-        assertThat(receivedRights.first(), `is`(initialRight.copy(rightId = generatedRightId, lastAppliedOn = null)))
-        assertTrue(dbConnector.rightDB.rightContainsId(generatedRightId))
+    @Test
+    fun testTemplateExceptions() =
+        runBlocking {
+            val templateName1 = "foobar"
+            val templateName2 = "baz"
+            val rightId1 = dbConnector.rightDB.insertRight(TEST_RIGHT.copy(isTemplate = true, templateName = templateName1))
 
-        // upsert
+            // Create Template which is an exception of the first one.
+            val rightId2 =
+                dbConnector.rightDB.insertRight(
+                    TEST_RIGHT.copy(
+                        isTemplate = true,
+                        templateName = templateName2,
+                        exceptionFrom = rightId1,
+                    ),
+                )
 
-        // given
-        val updatedRight =
-            initialRight.copy(rightId = generatedRightId, lastUpdatedBy = "user2", accessState = AccessState.RESTRICTED)
-        mockkStatic(Instant::class)
-        every { Instant.now() } returns NOW.plusDays(1).toInstant()
+            val exceptionRights: List<ItemRight> = dbConnector.rightDB.getExceptionsByRightId(rightId1)
+            assertThat(
+                exceptionRights.size,
+                `is`(1),
+            )
 
-        // when
-        val updatedRights = dbConnector.rightDB.upsertRight(updatedRight)
+            assertThat(
+                exceptionRights.first().rightId,
+                `is`(rightId2),
+            )
 
-        // then
-        assertThat(updatedRights, `is`(1))
-        val receivedUpdatedRights: List<ItemRight> = dbConnector.rightDB.getRightsByIds(listOf(generatedRightId))
-        assertThat(receivedUpdatedRights.first(), `is`(updatedRight.copy(lastUpdatedOn = NOW.plusDays(1), lastAppliedOn = null)))
+            // Clean up for other tests
+            dbConnector.rightDB.deleteRightsByIds(listOf(rightId2))
+            dbConnector.rightDB.deleteRightsByIds(listOf(rightId1))
+        }
 
-        // delete
-        // when
-        val deletedItems = dbConnector.rightDB.deleteRightsByIds(listOf(generatedRightId))
+    @Test(expectedExceptions = [PSQLException::class])
+    fun testUniqueConstraintOnTemplates() =
+        runBlocking {
+            val templateName1 = "foobar"
+            dbConnector.rightDB.insertRight(TEST_RIGHT.copy(isTemplate = true, templateName = templateName1))
+            dbConnector.rightDB.insertRight(TEST_RIGHT.copy(isTemplate = true, templateName = templateName1))
+            Assert.fail()
+        }
 
-        // then
-        assertThat(deletedItems, `is`(1))
+    @Test
+    fun testTemplateException() =
+        runBlocking {
+            val templateNameUpper = "upper"
+            val upperID =
+                dbConnector.rightDB.insertRight(
+                    TEST_RIGHT.copy(
+                        isTemplate = true,
+                        lastAppliedOn = null,
+                        templateName = templateNameUpper,
+                    ),
+                )
+            val templateNameException = "exception"
+            val exceptionTemplate1 =
+                TEST_RIGHT.copy(isTemplate = true, lastAppliedOn = null, templateName = templateNameException)
+            val excID1 = dbConnector.rightDB.insertRight(exceptionTemplate1)
+            val exceptionTemplate2 =
+                TEST_RIGHT.copy(isTemplate = true, lastAppliedOn = null, templateName = templateNameException + "2")
+            val excID2 = dbConnector.rightDB.insertRight(exceptionTemplate2)
 
-        // when + then
-        assertThat(dbConnector.rightDB.getRightsByIds(listOf(generatedRightId)), `is`(emptyList()))
-        assertFalse(dbConnector.rightDB.rightContainsId(generatedRightId))
-    }
-
-    @Test(expectedExceptions = [SQLException::class])
-    fun testGetRightException() {
-        val dbConnector = DatabaseConnector(
-            mockk(relaxed = true) {
-                every { prepareStatement(any()) } throws SQLException()
-            },
-            tracer,
-            mockk(),
-        )
-        dbConnector.rightDB.getRightsByIds(listOf("1"))
-    }
+            assertFalse(
+                dbConnector.rightDB.isException(upperID),
+            )
+            dbConnector.rightDB.addExceptionToTemplate(
+                rightIdExceptions = listOf(excID1, excID2),
+                rightIdTemplate = upperID,
+            )
+            assertFalse(
+                dbConnector.rightDB.isException(upperID),
+            )
+            assertTrue(
+                dbConnector.rightDB.isException(excID1),
+            )
+            assertTrue(
+                dbConnector.rightDB.isException(excID2),
+            )
+            val result = dbConnector.rightDB.getExceptionsByRightId(upperID)
+            assertThat(
+                result.toSet(),
+                `is`(
+                    setOf(
+                        exceptionTemplate1.copy(rightId = excID1, exceptionFrom = upperID),
+                        exceptionTemplate2.copy(rightId = excID2, exceptionFrom = upperID),
+                    ),
+                ),
+            )
+        }
 
     companion object {
-        private val tracer: Tracer = OpenTelemetry.noop().getTracer("de.zbw.api.lori.server.RightDBTest")
+        val TEST_UPDATED_RIGHT =
+            ItemRight(
+                rightId = "testupdated",
+                accessState = AccessState.RESTRICTED,
+                authorRightException = false,
+                basisAccessState = BasisAccessState.ZBW_POLICY,
+                basisStorage = BasisStorage.LICENCE_CONTRACT,
+                createdBy = TEST_RIGHT.createdBy,
+                createdOn = TEST_RIGHT.createdOn,
+                endDate = TEST_RIGHT.endDate!!.plusDays(1),
+                exceptionFrom = null,
+                groups = TEST_RIGHT.groups,
+                groupIds = TEST_RIGHT.groups?.map { it.groupId },
+                isTemplate = true,
+                lastUpdatedBy = "user4",
+                lastAppliedOn = TEST_RIGHT.lastAppliedOn,
+                lastUpdatedOn = TEST_RIGHT.lastUpdatedOn,
+                licenceContract = "foo licence",
+                nonStandardOpenContentLicence = false,
+                nonStandardOpenContentLicenceURL = "https://foobar.de",
+                notesGeneral = "Some more general notes",
+                notesFormalRules = "Some more formal rule notes",
+                notesProcessDocumentation = "Some more process documentation",
+                notesManagementRelated = "Some more management related notes",
+                openContentLicence = "some more licence",
+                restrictedOpenContentLicence = true,
+                startDate = TEST_RIGHT.startDate.minusDays(10),
+                templateDescription = "description foo",
+                templateName = "name foo",
+                zbwUserAgreement = true,
+            )
     }
 }

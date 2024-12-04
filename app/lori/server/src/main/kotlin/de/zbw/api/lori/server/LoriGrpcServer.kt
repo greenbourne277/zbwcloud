@@ -3,27 +3,29 @@ package de.zbw.api.lori.server
 import de.zbw.api.lori.server.config.LoriConfiguration
 import de.zbw.api.lori.server.connector.DAConnector
 import de.zbw.api.lori.server.type.DACommunity
+import de.zbw.api.lori.server.type.toProto
 import de.zbw.business.lori.server.LoriServerBackend
-import de.zbw.business.lori.server.type.RightError
+import de.zbw.business.lori.server.type.TemplateApplicationResult
 import de.zbw.lori.api.ApplyTemplatesRequest
 import de.zbw.lori.api.ApplyTemplatesResponse
+import de.zbw.lori.api.CheckForRightErrorsRequest
+import de.zbw.lori.api.CheckForRightErrorsResponse
 import de.zbw.lori.api.FullImportRequest
 import de.zbw.lori.api.FullImportResponse
 import de.zbw.lori.api.LoriServiceGrpcKt
+import de.zbw.lori.api.RightError
 import de.zbw.lori.api.TemplateApplication
-import de.zbw.lori.api.TemplateError
 import io.grpc.Status
 import io.grpc.StatusRuntimeException
 import io.opentelemetry.api.trace.SpanKind
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.api.trace.Tracer
 import io.opentelemetry.extension.kotlin.asContextElement
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.apache.logging.log4j.LogManager
 
@@ -39,16 +41,52 @@ class LoriGrpcServer(
     private val daConnector: DAConnector = DAConnector(config, backend),
     private val tracer: Tracer,
 ) : LoriServiceGrpcKt.LoriServiceCoroutineImplBase() {
+    override suspend fun checkForRightErrors(request: CheckForRightErrorsRequest): CheckForRightErrorsResponse {
+        val span =
+            tracer
+                .spanBuilder("lori.LoriService/CheckForRightErrors")
+                .setSpanKind(SpanKind.SERVER)
+                .startSpan()
+        return withContext(span.asContextElement()) {
+            try {
+                val errors =
+                    daConnector.backend.checkForRightErrors().map {
+                        RightError
+                            .newBuilder()
+                            .setErrorId(it.errorId ?: -1)
+                            .setMessage(it.message)
+                            .setHandle(it.handle)
+                            .setCreatedOn(it.createdOn.toInstant().toEpochMilli())
+                            .setErrorContext(it.conflictByContext)
+                            .setConflictType(it.conflictType.toProto())
+                            .build()
+                    }
+                CheckForRightErrorsResponse
+                    .newBuilder()
+                    .addAllErrors(errors)
+                    .build()
+            } catch (e: Throwable) {
+                span.setStatus(StatusCode.ERROR, e.message ?: e.cause.toString())
+                throw StatusRuntimeException(
+                    Status.INTERNAL
+                        .withCause(e.cause)
+                        .withDescription("Following error occurred: ${e.message}\nStacktrace: ${e.stackTraceToString()}"),
+                )
+            }
+        }
+    }
 
     override suspend fun fullImport(request: FullImportRequest): FullImportResponse {
-        val span = tracer
-            .spanBuilder("lori.LoriService/FullImport")
-            .setSpanKind(SpanKind.SERVER)
-            .startSpan()
+        val span =
+            tracer
+                .spanBuilder("lori.LoriService/FullImport")
+                .setSpanKind(SpanKind.SERVER)
+                .startSpan()
         return withContext(span.asContextElement()) {
             try {
                 val token = daConnector.login()
                 val communityIds = daConnector.getAllCommunityIds(token)
+                LOG.info("Community Ids to import: ${communityIds.sortedDescending().reversed()}")
                 val imports = runImports(communityIds, token)
                 FullImportResponse
                     .newBuilder()
@@ -57,8 +95,9 @@ class LoriGrpcServer(
             } catch (e: Throwable) {
                 span.setStatus(StatusCode.ERROR, e.message ?: e.cause.toString())
                 throw StatusRuntimeException(
-                    Status.INTERNAL.withCause(e.cause)
-                        .withDescription("Following error occurred: ${e.message}\nStacktrace: ${e.stackTraceToString()}")
+                    Status.INTERNAL
+                        .withCause(e.cause)
+                        .withDescription("Following error occurred: ${e.message}\nStacktrace: ${e.stackTraceToString()}"),
                 )
             } finally {
                 span.end()
@@ -67,39 +106,65 @@ class LoriGrpcServer(
     }
 
     override suspend fun applyTemplates(request: ApplyTemplatesRequest): ApplyTemplatesResponse {
-        val span = tracer
-            .spanBuilder("lori.LoriService/ApplyTemplates")
-            .setSpanKind(SpanKind.SERVER)
-            .startSpan()
+        val span =
+            tracer
+                .spanBuilder("lori.LoriService/ApplyTemplates")
+                .setSpanKind(SpanKind.SERVER)
+                .startSpan()
         return withContext(span.asContextElement()) {
             try {
-                val backendResponse: Map<Int, Pair<List<String>, List<RightError>>> = if (request.all) {
-                    daConnector.backend.applyAllTemplates()
-                } else {
-                    daConnector.backend.applyTemplates(request.templateIdsList)
-                }
-                val templateApplications: List<TemplateApplication> = backendResponse.entries.map { e ->
-                    TemplateApplication
-                        .newBuilder()
-                        .setTemplateId(e.key)
-                        .setNumberAppliedEntries(e.value.first.size)
-                        .addAllMetadataIds(e.value.first)
-                        .addAllErrors(
-                            e.value.second.map {
-                                TemplateError.newBuilder()
-                                    .setErrorId(it.errorId ?: -1)
-                                    .setMessage(it.message)
-                                    .setTemplateIdSource(it.templateIdSource ?: -1)
-                                    .setRightIdSource(it.rightIdSource ?: "")
-                                    .setMetadataId(it.metadataId)
-                                    .setHandleId(it.handleId)
-                                    .setConflictingRightId(it.conflictingRightId)
-                                    .setCreatedOn(it.createdOn?.toInstant()?.toEpochMilli() ?: -1)
-                                    .build()
-                            }
-                        )
-                        .build()
-                }
+                val backendResponse: List<TemplateApplicationResult> =
+                    if (request.all) {
+                        daConnector.backend.applyAllTemplates(request.skipDraft)
+                    } else {
+                        daConnector.backend.applyTemplates(request.rightIdsList, request.skipDraft)
+                    }
+                val templateApplications: List<TemplateApplication> =
+                    backendResponse.map { e: TemplateApplicationResult ->
+                        TemplateApplication
+                            .newBuilder()
+                            .setRightId(e.rightId)
+                            .setTemplateName(e.templateName)
+                            .setNumberAppliedEntries(e.appliedMetadataHandles.size)
+                            .addAllHandles(e.appliedMetadataHandles)
+                            .addAllErrors(
+                                e.errors.map {
+                                    RightError
+                                        .newBuilder()
+                                        .setErrorId(it.errorId ?: -1)
+                                        .setMessage(it.message)
+                                        .setRightIdSource(it.conflictingWithRightId)
+                                        .setHandle(it.handle)
+                                        .setConflictingRightId(it.conflictByRightId)
+                                        .setCreatedOn(it.createdOn.toInstant().toEpochMilli())
+                                        .setErrorContext(it.conflictByContext)
+                                        .build()
+                                },
+                            ).addAllExceptions(
+                                e.exceptionTemplateApplicationResult.map { exc ->
+                                    TemplateApplication
+                                        .newBuilder()
+                                        .setRightId(exc.rightId)
+                                        .setTemplateName(exc.templateName)
+                                        .setNumberAppliedEntries(exc.appliedMetadataHandles.size)
+                                        .addAllHandles(exc.appliedMetadataHandles)
+                                        .addAllErrors(
+                                            exc.errors.map {
+                                                RightError
+                                                    .newBuilder()
+                                                    .setErrorId(it.errorId ?: -1)
+                                                    .setMessage(it.message)
+                                                    .setRightIdSource(it.conflictingWithRightId)
+                                                    .setHandle(it.handle)
+                                                    .setConflictingRightId(it.conflictByRightId)
+                                                    .setCreatedOn(it.createdOn.toInstant().toEpochMilli())
+                                                    .setErrorContext(it.conflictByContext)
+                                                    .build()
+                                            },
+                                        ).build()
+                                },
+                            ).build()
+                    }
                 ApplyTemplatesResponse
                     .newBuilder()
                     .addAllTemplateApplications(templateApplications)
@@ -107,36 +172,40 @@ class LoriGrpcServer(
             } catch (e: Throwable) {
                 span.setStatus(StatusCode.ERROR, e.message ?: e.cause.toString())
                 throw StatusRuntimeException(
-                    Status.INTERNAL.withCause(e.cause)
-                        .withDescription("Following error occurred: ${e.message}\nStacktrace: ${e.stackTraceToString()}")
+                    Status.INTERNAL
+                        .withCause(e.cause)
+                        .withDescription("Following error occurred: ${e.message}\nStacktrace: ${e.stackTraceToString()}"),
                 )
             }
         }
     }
 
-    private suspend fun runImports(communityIds: List<Int>, token: String): Int {
+    private suspend fun runImports(
+        communityIds: List<Int>,
+        token: String,
+    ): Int {
         val semaphore = Semaphore(3)
-        val mutex = Mutex()
-        var importCount = 0
-        coroutineScope {
-            launch(Dispatchers.IO) {
-                repeat(communityIds.size) {
-                    semaphore.acquire()
-                    val imports = importCommunity(token, communityIds[it])
-                    mutex.withLock {
-                        importCount += imports
-                    }
-                    semaphore.release()
+        val numberImportsDeferred: List<Deferred<Int>> =
+            coroutineScope {
+                communityIds.map {
+                    val import = async { importCommunity(token, it, semaphore) }
+                    import
                 }
             }
-        }
-        return importCount
+        return numberImportsDeferred.awaitAll().sum()
     }
 
-    private suspend fun importCommunity(token: String, communityId: Int): Int {
+    private suspend fun importCommunity(
+        token: String,
+        communityId: Int,
+        semaphore: Semaphore,
+    ): Int {
+        semaphore.acquire()
         LOG.info("Start importing community $communityId")
         val daCommunity: DACommunity = daConnector.getCommunity(token, communityId)
         val import = daConnector.startFullImport(token, daCommunity)
+        semaphore.release()
+        LOG.info("Finished importing community $communityId")
         return import.sum()
     }
 

@@ -1,18 +1,25 @@
 package de.zbw.api.lori.server.route
 
 import de.zbw.business.lori.server.AccessStateFilter
+import de.zbw.business.lori.server.DashboardConflictTypeFilter
+import de.zbw.business.lori.server.DashboardTemplateNameFilter
+import de.zbw.business.lori.server.DashboardTimeIntervalEndFilter
+import de.zbw.business.lori.server.DashboardTimeIntervalStartFilter
 import de.zbw.business.lori.server.EndDateFilter
 import de.zbw.business.lori.server.FormalRuleFilter
+import de.zbw.business.lori.server.LicenceUrlFilter
 import de.zbw.business.lori.server.NoRightInformationFilter
 import de.zbw.business.lori.server.PaketSigelFilter
 import de.zbw.business.lori.server.PublicationDateFilter
 import de.zbw.business.lori.server.PublicationTypeFilter
 import de.zbw.business.lori.server.RightValidOnFilter
+import de.zbw.business.lori.server.SeriesFilter
 import de.zbw.business.lori.server.StartDateFilter
-import de.zbw.business.lori.server.TemplateIdFilter
+import de.zbw.business.lori.server.TemplateNameFilter
 import de.zbw.business.lori.server.TemporalValidityFilter
 import de.zbw.business.lori.server.ZDBIdFilter
 import de.zbw.business.lori.server.type.AccessState
+import de.zbw.business.lori.server.type.ConflictType
 import de.zbw.business.lori.server.type.FormalRule
 import de.zbw.business.lori.server.type.PublicationType
 import de.zbw.business.lori.server.type.TemporalValidity
@@ -36,12 +43,12 @@ object QueryParameterParser {
         val both = s.matches("\\d+-\\d+".toRegex())
         return if (noFromYear || noToYear || both) {
             PublicationDateFilter(
-                noFromYear.takeIf { !it }
-                    ?.let { s.substringBefore("-").toInt() }
-                    ?: PublicationDateFilter.MIN_YEAR,
-                noToYear.takeIf { !it }
-                    ?.let { s.substringAfter("-").toInt() }
-                    ?: PublicationDateFilter.MAX_YEAR
+                noFromYear
+                    .takeIf { !it }
+                    ?.let { s.substringBefore("-").toInt() },
+                noToYear
+                    .takeIf { !it }
+                    ?.let { s.substringAfter("-").toInt() },
             )
         } else {
             null
@@ -52,13 +59,14 @@ object QueryParameterParser {
         if (s == null) {
             return null
         }
-        val receivedPubTypes: List<PublicationType> = s.split(",".toRegex()).mapNotNull {
-            try {
-                PublicationType.valueOf(it)
-            } catch (iae: IllegalArgumentException) {
-                null
+        val receivedPubTypes: List<PublicationType> =
+            s.split(",".toRegex()).mapNotNull {
+                try {
+                    PublicationType.valueOf(it)
+                } catch (iae: IllegalArgumentException) {
+                    null
+                }
             }
-        }
         return receivedPubTypes.takeIf { it.isNotEmpty() }?.let { PublicationTypeFilter(it) }
     }
 
@@ -78,17 +86,26 @@ object QueryParameterParser {
         return zdbIds.takeIf { it.isNotEmpty() }?.let { ZDBIdFilter(it) }
     }
 
+    fun parseSeriesFilter(s: String?): SeriesFilter? {
+        if (s == null) {
+            return null
+        }
+        val seriesNames: List<String> = s.split(",".toRegex())
+        return seriesNames.takeIf { it.isNotEmpty() }?.let { SeriesFilter(it) }
+    }
+
     fun parseAccessStateFilter(s: String?): AccessStateFilter? {
         if (s == null) {
             return null
         }
-        val accessStates: List<AccessState> = s.split(",".toRegex()).mapNotNull {
-            try {
-                AccessState.valueOf(it)
-            } catch (iae: IllegalArgumentException) {
-                null
+        val accessStates: List<AccessState> =
+            s.split(",".toRegex()).mapNotNull {
+                try {
+                    AccessState.valueOf(it)
+                } catch (iae: IllegalArgumentException) {
+                    null
+                }
             }
-        }
         return accessStates.takeIf { it.isNotEmpty() }?.let { AccessStateFilter(it) }
     }
 
@@ -96,13 +113,14 @@ object QueryParameterParser {
         if (s == null) {
             return null
         }
-        val temporalValidity: List<TemporalValidity> = s.split(",".toRegex()).mapNotNull {
-            try {
-                TemporalValidity.valueOf(it)
-            } catch (iae: IllegalArgumentException) {
-                null
+        val temporalValidity: List<TemporalValidity> =
+            s.split(",".toRegex()).mapNotNull {
+                try {
+                    TemporalValidity.valueOf(it)
+                } catch (iae: IllegalArgumentException) {
+                    null
+                }
             }
-        }
         return temporalValidity.takeIf { it.isNotEmpty() }?.let { TemporalValidityFilter(it) }
     }
 
@@ -121,23 +139,23 @@ object QueryParameterParser {
             ?.let { parseDate(it) }
             ?.let { RightValidOnFilter(it) }
 
-    private fun parseDate(s: String): LocalDate? {
-        return try {
+    private fun parseDate(s: String): LocalDate? =
+        try {
             LocalDate.parse(s, DateTimeFormatter.ISO_LOCAL_DATE)
         } catch (dte: DateTimeException) {
             null
         }
-    }
 
     fun parseFormalRuleFilter(s: String?): FormalRuleFilter? =
         s?.let { input ->
-            val formalRules: List<FormalRule> = input.split(",".toRegex()).mapNotNull {
-                try {
-                    FormalRule.valueOf(it.uppercase())
-                } catch (iae: IllegalArgumentException) {
-                    null
+            val formalRules: List<FormalRule> =
+                input.split(",".toRegex()).mapNotNull {
+                    try {
+                        FormalRule.valueOf(it.uppercase())
+                    } catch (iae: IllegalArgumentException) {
+                        null
+                    }
                 }
-            }
             return formalRules.takeIf { it.isNotEmpty() }?.let { FormalRuleFilter(it) }
         }
 
@@ -150,13 +168,48 @@ object QueryParameterParser {
             }
         }
 
-    fun parseTemplateIdFilter(s: String?): TemplateIdFilter? =
-        s?.split(",".toRegex())
-            ?.mapNotNull {
-                it.toIntOrNull()
-            }?.takeIf {
+    fun parseTemplateNameFilter(s: String?): TemplateNameFilter? =
+        s
+            ?.split(",".toRegex())
+            ?.takeIf {
                 it.isNotEmpty()
             }?.let {
-                TemplateIdFilter(it)
+                TemplateNameFilter(it)
             }
+
+    fun parseDashboardTemplateNameFilter(s: String?): DashboardTemplateNameFilter? =
+        s
+            ?.split(",".toRegex())
+            ?.takeIf {
+                it.isNotEmpty()
+            }?.let {
+                DashboardTemplateNameFilter(it)
+            }
+
+    fun parseDashboardConflictTypeFilter(s: String?): DashboardConflictTypeFilter? {
+        if (s == null) {
+            return null
+        }
+        val receivedConflictTypes =
+            s.split(",".toRegex()).mapNotNull {
+                try {
+                    ConflictType.valueOf(it.uppercase())
+                } catch (iae: IllegalArgumentException) {
+                    null
+                }
+            }
+        return receivedConflictTypes.takeIf { it.isNotEmpty() }?.let { DashboardConflictTypeFilter(it) }
+    }
+
+    fun parseDashboardStartDateFilter(s: String?): DashboardTimeIntervalStartFilter? =
+        s
+            ?.let { parseDate(it) }
+            ?.let { DashboardTimeIntervalStartFilter(it) }
+
+    fun parseDashboardEndDateFilter(s: String?): DashboardTimeIntervalEndFilter? =
+        s
+            ?.let { parseDate(it) }
+            ?.let { DashboardTimeIntervalEndFilter(it) }
+
+    fun parseLicenceUrlFilter(s: String?): LicenceUrlFilter? = s?.let { LicenceUrlFilter(it) }
 }

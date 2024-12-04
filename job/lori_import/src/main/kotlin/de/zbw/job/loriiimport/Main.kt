@@ -9,7 +9,7 @@ import io.opentelemetry.extension.kotlin.asContextElement
 import io.opentelemetry.sdk.autoconfigure.AutoConfiguredOpenTelemetrySdk
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import org.slf4j.LoggerFactory
+import org.apache.logging.log4j.LogManager
 
 /**
  * Trigger a full import.
@@ -20,37 +20,46 @@ import org.slf4j.LoggerFactory
 object Main {
     @JvmStatic
     fun main(args: Array<String>) {
-
-        val openTelemetry = AutoConfiguredOpenTelemetrySdk
-            .initialize()
-            .openTelemetrySdk
+        val openTelemetry =
+            AutoConfiguredOpenTelemetrySdk
+                .initialize()
+                .openTelemetrySdk
         val tracer = openTelemetry.getTracer("de.zbw.job.loriiimport.Main")
 
-        val span = tracer
-            .spanBuilder("main")
-            .setSpanKind(SpanKind.CLIENT)
-            .startSpan()
+        val span =
+            tracer
+                .spanBuilder("main")
+                .setSpanKind(SpanKind.CLIENT)
+                .startSpan()
 
-        val loriClient = LoriClient(
-            configuration = LoriClientConfiguration(
-                9092,
-                "lori",
-                3600000 // Wait for one hour max. Anything above that is at least worth investigating.
-            ),
-            openTelemetry = openTelemetry,
-        )
+        val loriClient =
+            LoriClient(
+                configuration =
+                    LoriClientConfiguration(
+                        9092,
+                        "lori",
+                        // Wait for one hour max. Anything above that is at least worth investigating.
+                        3600000,
+                    ),
+                openTelemetry = openTelemetry,
+            )
 
         runBlocking {
             try {
                 withContext(span.asContextElement()) {
+                    LOG.info("Start full import:")
                     val response: FullImportResponse = loriClient.fullImport(FullImportRequest.getDefaultInstance())
                     span.setAttribute("Items Imported", response.itemsImported.toLong())
                 }
+            } catch (e: Exception) {
+                LOG.error("An error occurred on full import procedure: ${e.message}")
+                LOG.error("Stacktrace: ${e.printStackTrace()}")
+                throw e
             } finally {
                 span.end()
             }
         }
     }
 
-    private val LOG = LoggerFactory.getLogger(Main::class.java)
+    private val LOG = LogManager.getLogger(Main::class.java)
 }

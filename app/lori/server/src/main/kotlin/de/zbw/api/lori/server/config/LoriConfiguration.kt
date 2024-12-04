@@ -27,9 +27,13 @@ data class LoriConfiguration(
     val jwtAudience: String,
     val jwtIssuer: String,
     val jwtRealm: String,
-    val duoSenderEntityId: String,
+    val duoUrlMetadata: String,
+    val duoUrlSLO: String,
+    val duoUrlSSO: String,
     val sessionSignKey: String,
     val sessionEncryptKey: String,
+    val stage: String,
+    val handleURL: String,
 ) {
     companion object {
         private const val DEFAULT_HTTP_PORT = 8082
@@ -44,17 +48,35 @@ data class LoriConfiguration(
             val sqlUrl = KonfigDeclaration.string(prefix, "sql", "url").required()
             val sqlUser = KonfigDeclaration.string(prefix, "sql", "user").required()
             val sqlPassword = KonfigDeclaration.string(prefix, "sql", "password").secret().required()
-            val digitalArchiveAddress = KonfigDeclaration.string(prefix, "connection", "digitalarchive", "address").required()
-            val digitalArchiveBasicAuth = KonfigDeclaration.string(prefix, "connection", "digitalarchive", "basicauth").required()
-            val digitalArchiveUsername = KonfigDeclaration.string(prefix, "connection", "digitalarchive", "credentials", "user").required()
-            val digitalArchivePassword = KonfigDeclaration.string(prefix, "connection", "digitalarchive", "credentials", "password").secret().required()
+            val digitalArchiveAddress =
+                KonfigDeclaration.string(prefix, "connection", "digitalarchive", "address").required()
+            val digitalArchiveBasicAuth =
+                KonfigDeclaration.string(prefix, "connection", "digitalarchive", "basicauth").required()
+            val digitalArchiveUsername =
+                KonfigDeclaration
+                    .string(
+                        prefix,
+                        "connection",
+                        "digitalarchive",
+                        "credentials",
+                        "username",
+                    ).required()
+            val digitalArchivePassword =
+                KonfigDeclaration
+                    .string(prefix, "connection", "digitalarchive", "credentials", "password")
+                    .secret()
+                    .required()
             val jwtAudience = KonfigDeclaration.string(prefix, "jwt", "audience").required()
             val jwtIssuer = KonfigDeclaration.string(prefix, "jwt", "issuer").required()
             val jwtRealm = KonfigDeclaration.string(prefix, "jwt", "realm").required()
             val jwtSecret = KonfigDeclaration.string(prefix, "jwt", "secret").secret().required()
-            val duoSenderEntityId = KonfigDeclaration.string(prefix, "duo", "senderentityid").required()
+            val duoUrlMetadata = KonfigDeclaration.string(prefix, "duo", "metadata").required()
+            val duoUrlSLO = KonfigDeclaration.string(prefix, "duo", "slo").required()
+            val duoUrlSSO = KonfigDeclaration.string(prefix, "duo", "sso").required()
             val sessionSignKey = KonfigDeclaration.string(prefix, "session", "sign").secret().required()
             val sessionEncryptKey = KonfigDeclaration.string(prefix, "session", "encrypt").secret().required()
+            val stage = KonfigDeclaration.string(prefix, "stage").required()
+            val handleURL = KonfigDeclaration.string(prefix, "connection", "digitalarchive", "handleurl").required()
             return LoriConfiguration(
                 httpPort = source[httpPort],
                 grpcPort = source[grpcPort],
@@ -69,9 +91,13 @@ data class LoriConfiguration(
                 jwtIssuer = source[jwtIssuer],
                 jwtRealm = source[jwtRealm],
                 jwtSecret = source[jwtSecret],
-                duoSenderEntityId = source[duoSenderEntityId],
+                duoUrlMetadata = source[duoUrlMetadata],
                 sessionSignKey = source[sessionSignKey],
                 sessionEncryptKey = source[sessionEncryptKey],
+                stage = source[stage],
+                handleURL = source[handleURL],
+                duoUrlSLO = source[duoUrlSLO],
+                duoUrlSSO = source[duoUrlSSO],
             )
         }
     }

@@ -4,18 +4,25 @@ import RightsEditDialog from "@/components/RightsEditDialog.vue";
 import RightsEditTabs from "@/components/RightsEditTabs.vue";
 import { computed, defineComponent, PropType, ref } from "vue";
 import { useDialogsStore } from "@/stores/dialogs";
+import metadata_utils from "@/utils/metadata_utils";
+import { useSearchStore } from "@/stores/search";
 
 export default defineComponent({
+  computed: {
+    metadata_utils() {
+      return metadata_utils;
+    },
+  },
   props: {
     rights: {
       type: Object as PropType<Array<RightRest>>,
       required: true,
     },
-    metadataId: {
+    handle: {
       type: String,
       required: true,
     },
-    handle: {
+    title: {
       type: String,
       required: true,
     },
@@ -26,39 +33,44 @@ export default defineComponent({
   },
 
   setup(props) {
-    const tabDialogActivated = ref(false);
+    const searchStore = useSearchStore();
     const currentRight = ref({} as RightRest);
     const currentIndex = ref(0);
     const headers = [
       {
-        text: "AccessState",
+        title: "AccessState",
         value: "accessState",
       },
       {
-        text: "Start-Datum",
+        title: "Start-Datum",
         value: "startDate",
       },
       {
-        text: "End-Datum",
+        title: "End-Datum",
         value: "endDate",
       },
       {
-        text: "Template",
-        value: "templateId",
+        title: "Rechte-ID",
+        value: "rightId",
+      },
+      {
+        title: "Typ",
+        value: "type",
       },
     ];
     const isNew = ref(false);
     const renderKey = ref(0);
-    const selectedHeaders: { text: string; value: string }[] = headers;
     const updateSuccessful = ref(false);
-    const addSuccessful = ref(false);
+    const successMsgIsActive = ref(false);
+    const successMsg = ref("");
 
-    const activateTabEdit = () => {
-      tabDialogActivated.value = true;
+    const activateTabEdit = (mouseEvent: MouseEvent, row: any) => {
+      dialogStore.rightsEditTabsSelectedRight = row.item.rightId;
+      dialogStore.rightsEditTabsActivated = true;
     };
 
     const tabDialogClosed = () => {
-      tabDialogActivated.value = false;
+      dialogStore.rightsEditTabsActivated = false;
     };
 
     const dialogStore = useDialogsStore();
@@ -66,7 +78,7 @@ export default defineComponent({
       dialogStore.editRightActivated = true;
       currentRight.value = {} as RightRest;
       updateSuccessful.value = false;
-      addSuccessful.value = false;
+      successMsgIsActive.value = false;
       currentIndex.value = -1;
       isNew.value = true;
     };
@@ -78,7 +90,9 @@ export default defineComponent({
       currentRights.value.unshift(right);
       renderKey.value += 1;
       dialogStore.editRightActivated = false;
-      addSuccessful.value = true;
+      successMsgIsActive.value = true;
+      successMsg.value = "Rechteinformation erfolgreich für Item " +
+          "'" + props.title + " (" + props.handle + ")' hinzugefügt.";
     };
 
     const updateRight = (right: RightRest, index: number) => {
@@ -106,14 +120,15 @@ export default defineComponent({
 
     return {
       // Variables
-      addSuccessful,
       currentRight,
       currentIndex,
       dialogStore,
       isNew,
       renderKey,
-      selectedHeaders,
-      tabDialogActivated,
+      headers,
+      searchStore,
+      successMsg,
+      successMsgIsActive,
       // Methods
       activateTabEdit,
       addRight,
@@ -130,14 +145,22 @@ export default defineComponent({
 
 <style scoped></style>
 <template>
-  <v-card v-if="rights" class="mx-auto" tile>
-    <v-alert v-model="addSuccessful" closable type="success">
-      Rechteinformation erfolgreich für Item {{ metadataId }} hinzugefügt.
-    </v-alert>
+  <v-sheet v-if="rights" class="mx-auto" tile>
+    <v-snackbar
+        contained
+        multi-line
+        location="top"
+        timer="true"
+        timeout="10000"
+        v-model="successMsgIsActive"
+        color="success"
+    >
+      {{ successMsg }}
+    </v-snackbar>
     <v-divider></v-divider>
     <v-data-table
       :key="renderKey"
-      :headers="selectedHeaders"
+      :headers="headers"
       :items="rights"
       @click:row="activateTabEdit"
     >
@@ -145,7 +168,12 @@ export default defineComponent({
         <v-toolbar flat>
           <v-toolbar-title
             >Rechteinformationen
-            <a :href="handle">{{ handle }}</a>
+            <a
+              v-bind:href="
+                metadata_utils.hrefHandle(handle, searchStore.handleURLResolver)
+              "
+              >{{ metadata_utils.shortenHandle(handle) }}</a
+            >
           </v-toolbar-title>
           <v-divider class="mx-4" inset vertical></v-divider>
           <v-btn class="mb-2" color="primary" dark @click="newRight()">
@@ -159,11 +187,28 @@ export default defineComponent({
       <template v-slot:item.startDate="{ item }">
         <td>{{ item.startDate.toLocaleDateString("de") }}</td>
       </template>
+      <template v-slot:item.type="{ item }">
+        <v-tooltip location="bottom" text="Template">
+          <template v-slot:activator="{ props }">
+              <v-icon v-if="item.isTemplate" v-bind="props">
+                mdi-note-multiple
+            </v-icon>
+          </template>
+        </v-tooltip>
+        <v-tooltip location="bottom" text="Einzelner Rechteeintrag">
+          <template v-slot:activator="{ props }">
+            <v-icon v-if="!item.isTemplate" v-bind="props">
+              mdi-note-outline
+            </v-icon>
+          </template>
+        </v-tooltip>
+      </template>
     </v-data-table>
     <v-dialog
       v-model="dialogStore.editRightActivated"
       :retain-focus="false"
-      max-width="1000px"
+      max-height="800px"
+      max-width="1600px"
       v-on:close="editRightClosed"
       v-on:click:outside="editRightClosed"
     >
@@ -171,16 +216,16 @@ export default defineComponent({
         :index="currentIndex"
         :isNewRight="isNew"
         :isNewTemplate="false"
-        :metadataId="metadataId"
+        :handle="handle"
         :right="currentRight"
-        :isTemplate="currentRight.templateId != undefined"
-        :templateId="currentRight.templateId"
         v-on:addSuccessful="addRight"
         v-on:editRightClosed="editRightClosed"
       ></RightsEditDialog>
     </v-dialog>
     <v-dialog
-      v-model="tabDialogActivated"
+      v-model="dialogStore.rightsEditTabsActivated"
+      max-height="800px"
+      max-width="1600px"
       :retain-focus="false"
       v-on:close="tabDialogClosed"
       v-on:deleteSuccessful="deleteSuccessful"
@@ -188,11 +233,12 @@ export default defineComponent({
       v-on:click:outside="tabDialogClosed"
     >
       <RightsEditTabs
-        :metadata-id="metadataId"
+        :handle="handle"
         :rights="rights"
+        :selectedRight="dialogStore.rightsEditTabsSelectedRight"
         v-on:tabDialogClosed="tabDialogClosed"
         v-on:updateSuccessful="updateRight"
       ></RightsEditTabs>
     </v-dialog>
-  </v-card>
+  </v-sheet>
 </template>

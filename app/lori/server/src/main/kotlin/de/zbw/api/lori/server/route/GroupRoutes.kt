@@ -43,16 +43,19 @@ fun Routing.groupRoutes(
              * Insert a new Group.
              */
             post {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.POST/api/v1/group")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.POST/api/v1/group")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         @Suppress("SENSELESS_COMPARISON")
-                        val group: GroupRest = call.receive(GroupRest::class)
-                            .takeIf { it.name != null && it.ipAddresses != null }
-                            ?: throw BadRequestException("Invalid Json has been provided")
+                        val group: GroupRest =
+                            call
+                                .receive(GroupRest::class)
+                                .takeIf { it.groupId != null && it.allowedAddressesRaw != null && it.title != null }
+                                ?: throw BadRequestException("Invalid Json has been provided")
                         span.setAttribute("group", group.toString())
                         val pk = backend.insertGroup(group.toBusiness())
                         span.setStatus(StatusCode.OK)
@@ -63,7 +66,7 @@ fun Routing.groupRoutes(
                             HttpStatusCode.BadRequest,
                             ApiError.badRequestError(
                                 detail = "Das JSON Format ist ungültig und konnte nicht gelesen werden.",
-                            )
+                            ),
                         )
                     } catch (iae: IllegalArgumentException) {
                         span.setStatus(StatusCode.ERROR, "BadRequest: ${iae.message}")
@@ -71,7 +74,7 @@ fun Routing.groupRoutes(
                             HttpStatusCode.BadRequest,
                             ApiError.badRequestError(
                                 detail = "Das CSV File hat die falsche Anzahl an Spalten.",
-                            )
+                            ),
                         )
                     } catch (pe: PSQLException) {
                         if (pe.sqlState == ApiError.PSQL_CONFLICT_ERR_CODE) {
@@ -80,7 +83,7 @@ fun Routing.groupRoutes(
                                 HttpStatusCode.Conflict,
                                 ApiError.conflictError(
                                     detail = "Eine Gruppe mit diesem Namen existiert bereits.",
-                                )
+                                ),
                             )
                         } else {
                             span.setStatus(StatusCode.ERROR, "Exception: ${pe.message}")
@@ -88,7 +91,7 @@ fun Routing.groupRoutes(
                                 HttpStatusCode.InternalServerError,
                                 ApiError.internalServerError(
                                     detail = "Ein interner Datenbankfehler ist aufgetreten.",
-                                )
+                                ),
                             )
                         }
                     } catch (e: Exception) {
@@ -109,16 +112,19 @@ fun Routing.groupRoutes(
              * Update an existing Group.
              */
             put {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.PUT/api/v1/group")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.PUT/api/v1/group")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         @Suppress("SENSELESS_COMPARISON")
-                        val group: GroupRest = call.receive(GroupRest::class)
-                            .takeIf { it.name != null && it.ipAddresses != null }
-                            ?: throw BadRequestException("Invalid Json has been provided")
+                        val group: GroupRest =
+                            call
+                                .receive(GroupRest::class)
+                                .takeIf { it.groupId != null && it.allowedAddressesRaw != null && it.title != null }
+                                ?: throw BadRequestException("Invalid Json has been provided")
                         span.setAttribute("group", group.toString())
                         val insertedRows = backend.updateGroup(group.toBusiness())
                         if (insertedRows == 1) {
@@ -129,8 +135,8 @@ fun Routing.groupRoutes(
                             call.respond(
                                 HttpStatusCode.NotFound,
                                 ApiError.notFoundError(
-                                    detail = "Für die Gruppe ${group.name} existiert kein Eintrag.",
-                                )
+                                    detail = "Für die Gruppe '${group.title} (${group.groupId})' existiert kein Eintrag.",
+                                ),
                             )
                         }
                     } catch (iae: IllegalArgumentException) {
@@ -165,14 +171,15 @@ fun Routing.groupRoutes(
              * Delete Group by Id.
              */
             delete("{id}") {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.DELETE/api/v1/group/{id}")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.DELETE/api/v1/group/{id}")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
-                        val groupId = call.parameters["id"]
-                        span.setAttribute("groupId", groupId ?: "null")
+                        val groupId = call.parameters["id"]?.toIntOrNull()
+                        span.setAttribute("groupId", groupId?.toString() ?: "null")
                         if (groupId == null) {
                             span.setStatus(StatusCode.ERROR, "BadRequest: No valid id has been provided in the url.")
                             call.respond(HttpStatusCode.BadRequest, "No valid id has been provided in the url.")
@@ -186,7 +193,7 @@ fun Routing.groupRoutes(
                                 call.respond(
                                     HttpStatusCode.NotFound,
                                     ApiError.notFoundError(
-                                        detail = "Für die Gruppe $groupId existiert kein Eintrag.",
+                                        detail = "Für die Gruppe mit der ID '$groupId' existiert kein Eintrag.",
                                     ),
                                 )
                             }
@@ -218,14 +225,15 @@ fun Routing.groupRoutes(
          * Return Group for a given id.
          */
         get("{id}") {
-            val span = tracer
-                .spanBuilder("lori.LoriService.GET/api/v1/group/{id}")
-                .setSpanKind(SpanKind.SERVER)
-                .startSpan()
+            val span =
+                tracer
+                    .spanBuilder("lori.LoriService.GET/api/v1/group/{id}")
+                    .setSpanKind(SpanKind.SERVER)
+                    .startSpan()
             withContext(span.asContextElement()) {
                 try {
-                    val groupId = call.parameters["id"]
-                    span.setAttribute("groupId", groupId ?: "null")
+                    val groupId = call.parameters["id"]?.toIntOrNull()
+                    span.setAttribute("groupId", groupId?.toString() ?: "null")
                     if (groupId == null) {
                         span.setStatus(StatusCode.ERROR, "BadRequest: No valid id has been provided in the url.")
                         call.respond(HttpStatusCode.BadRequest, "No valid id has been provided in the url.")
@@ -239,8 +247,8 @@ fun Routing.groupRoutes(
                             call.respond(
                                 HttpStatusCode.NotFound,
                                 ApiError.notFoundError(
-                                    detail = "Für die Gruppe $groupId existiert kein Eintrag.",
-                                )
+                                    detail = "Für die Gruppe mit der ID '$groupId' existiert kein Eintrag.",
+                                ),
                             )
                         }
                     }
@@ -261,10 +269,11 @@ fun Routing.groupRoutes(
              * Receive a list of groups.
              */
             get {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.GET/api/v1/group/list")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.GET/api/v1/group/list")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         val limit: Int = call.request.queryParameters["limit"]?.toInt() ?: 100
@@ -272,7 +281,7 @@ fun Routing.groupRoutes(
                         if (limit < 1 || limit > 200) {
                             span.setStatus(
                                 StatusCode.ERROR,
-                                "BadRequest: Limit parameter is expected to be between 1 and 200."
+                                "BadRequest: Limit parameter is expected to be between 1 and 200.",
                             )
                             call.respond(
                                 HttpStatusCode.BadRequest,

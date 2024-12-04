@@ -8,7 +8,6 @@ import org.testng.annotations.DataProvider
 import org.testng.annotations.Test
 
 class LoriConfigurationTest {
-
     @DataProvider(name = DATA_FOR_LORI_CONFIGURATION)
     fun createDataForLoriConfigurationTest() =
         arrayOf(
@@ -26,23 +25,28 @@ class LoriConfigurationTest {
         System.setProperty("lori.sql.password", expectedConfig.sqlPassword)
         System.setProperty("lori.connection.digitalarchive.address", expectedConfig.digitalArchiveAddress)
         System.setProperty("lori.connection.digitalarchive.basicauth", expectedConfig.digitalArchiveBasicAuth)
-        System.setProperty("lori.connection.digitalarchive.credentials.user", expectedConfig.digitalArchiveUsername)
+        System.setProperty("lori.connection.digitalarchive.credentials.username", expectedConfig.digitalArchiveUsername)
         System.setProperty("lori.connection.digitalarchive.credentials.password", expectedConfig.digitalArchivePassword)
         System.setProperty("lori.jwt.audience", expectedConfig.jwtAudience)
         System.setProperty("lori.jwt.issuer", expectedConfig.jwtIssuer)
         System.setProperty("lori.jwt.realm", expectedConfig.jwtRealm)
         System.setProperty("lori.jwt.secret", expectedConfig.jwtSecret)
-        System.setProperty("lori.duo.senderentityid", expectedConfig.duoSenderEntityId)
+        System.setProperty("lori.duo.metadata", expectedConfig.duoUrlMetadata)
+        System.setProperty("lori.duo.slo", expectedConfig.duoUrlSLO)
+        System.setProperty("lori.duo.sso", expectedConfig.duoUrlSSO)
         System.setProperty("lori.session.sign", expectedConfig.sessionSignKey)
         System.setProperty("lori.session.encrypt", expectedConfig.sessionEncryptKey)
-        val receivedConfig = LoriConfiguration.load(
-            "lori",
-            ChainedKonfiguration(
-                listOf(
-                    SystemPropertiesKonfiguration(),
-                )
+        System.setProperty("lori.stage", expectedConfig.stage)
+        System.setProperty("lori.connection.digitalarchive.handleurl", expectedConfig.handleURL)
+        val receivedConfig =
+            LoriConfiguration.load(
+                "lori",
+                ChainedKonfiguration(
+                    listOf(
+                        SystemPropertiesKonfiguration(),
+                    ),
+                ),
             )
-        )
         assertThat(receivedConfig, `is`(expectedConfig))
     }
 
@@ -63,9 +67,13 @@ class LoriConfigurationTest {
                 jwtAudience = "jwtAudience",
                 jwtIssuer = "jwtIssuer",
                 jwtRealm = "jwtRealm",
-                duoSenderEntityId = "someId",
+                duoUrlMetadata = "someId",
                 sessionSignKey = "8BADF00DDEADBEAFDEADBAADDEADBAAD",
                 sessionEncryptKey = "CAFEBABEDEADBEAFDEADBAADDEFEC8ED",
+                stage = "dev",
+                handleURL = "https://testdarch.zbw.eu/econis-archiv/handle/",
+                duoUrlSLO = "https://duo/slo",
+                duoUrlSSO = "https://duo/sso",
             )
     }
 }

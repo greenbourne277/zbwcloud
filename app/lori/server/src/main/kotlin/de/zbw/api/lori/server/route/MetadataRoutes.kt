@@ -36,24 +36,26 @@ fun Routing.metadataRoutes(
     route("/api/v1/metadata") {
         authenticate("auth-login") {
             post {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.POST/api/v1/metadata")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.POST/api/v1/metadata")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         // receive() may return an object where non-null fields are null.
                         @Suppress("SENSELESS_COMPARISON")
                         val metadata: MetadataRest =
-                            call.receive<MetadataRest>()
-                                .takeIf { it.metadataId != null }
+                            call
+                                .receive<MetadataRest>()
+                                .takeIf { it.handle != null }
                                 ?: throw BadRequestException("Invalid Json has been provided")
                         span.setAttribute("metadata", metadata.toString())
-                        if (backend.metadataContainsId(metadata.metadataId)) {
+                        if (backend.metadataContainsHandle(metadata.handle)) {
                             span.setStatus(StatusCode.ERROR, "Conflict: Resource with this id already exists.")
                             call.respond(
                                 HttpStatusCode.Conflict,
-                                ApiError.conflictError(ApiError.RESOURCE_STILL_IN_USE)
+                                ApiError.conflictError(ApiError.RESOURCE_STILL_IN_USE),
                             )
                         } else {
                             backend.insertMetadataElement(metadata.toBusiness())
@@ -64,13 +66,13 @@ fun Routing.metadataRoutes(
                         span.setStatus(StatusCode.ERROR, "BadRequest: ${e.message}")
                         call.respond(
                             HttpStatusCode.BadRequest,
-                            ApiError.badRequestError(ApiError.INVALID_JSON)
+                            ApiError.badRequestError(ApiError.INVALID_JSON),
                         )
                     } catch (e: Exception) {
                         span.setStatus(StatusCode.ERROR, "Exception: ${e.message}")
                         call.respond(
                             HttpStatusCode.InternalServerError,
-                            ApiError.internalServerError()
+                            ApiError.internalServerError(),
                         )
                     } finally {
                         span.end()
@@ -78,34 +80,35 @@ fun Routing.metadataRoutes(
                 }
             }
 
-            delete("{id}") {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.DELETE/api/v1/metadata")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+            delete {
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.DELETE/api/v1/metadata?handle={handle}")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
-                        val metadataId = call.parameters["id"]
-                        span.setAttribute("metadataId", metadataId ?: "null")
-                        if (metadataId == null) {
+                        val handle: String? = call.request.queryParameters["handle"]
+                        span.setAttribute("handle", handle ?: "null")
+                        if (handle == null) {
                             span.setStatus(StatusCode.ERROR, "BadRequest: No valid id has been provided in the url.")
                             call.respond(
                                 HttpStatusCode.BadRequest,
-                                ApiError.badRequestError(ApiError.NO_VALID_ID)
+                                ApiError.badRequestError(ApiError.NO_VALID_ID),
                             )
-                        } else if (backend.itemContainsMetadata(metadataId)) {
+                        } else if (backend.itemContainsMetadata(handle)) {
                             span.setStatus(
                                 StatusCode.ERROR,
-                                "Conflict: Metadata-Id $metadataId is still in use. Can't be deleted."
+                                "Conflict: Metadata-Id $handle is still in use. Can't be deleted.",
                             )
                             call.respond(
                                 HttpStatusCode.Conflict,
                                 ApiError.conflictError(
-                                    ApiError.RESOURCE_STILL_IN_USE
-                                )
+                                    ApiError.RESOURCE_STILL_IN_USE,
+                                ),
                             )
                         } else {
-                            backend.deleteMetadata(metadataId)
+                            backend.deleteMetadataByHandle(handle)
                             span.setStatus(StatusCode.OK)
                             call.respond(HttpStatusCode.OK)
                         }
@@ -119,18 +122,19 @@ fun Routing.metadataRoutes(
             }
 
             put {
-                val span = tracer
-                    .spanBuilder("lori.LoriService.PUT/api/v1/metadata")
-                    .setSpanKind(SpanKind.SERVER)
-                    .startSpan()
+                val span =
+                    tracer
+                        .spanBuilder("lori.LoriService.PUT/api/v1/metadata")
+                        .setSpanKind(SpanKind.SERVER)
+                        .startSpan()
                 withContext(span.asContextElement()) {
                     try {
                         // receive() may return an object where non-null fields are null.
                         @Suppress("SENSELESS_COMPARISON")
                         val metadata: MetadataRest =
-                            call.receive(MetadataRest::class).takeIf { it.metadataId != null }
+                            call.receive(MetadataRest::class).takeIf { it.handle != null }
                                 ?: throw BadRequestException("Invalid Json has been provided")
-                        if (backend.metadataContainsId(metadata.metadataId)) {
+                        if (backend.metadataContainsHandle(metadata.handle)) {
                             backend.upsertMetadataElements(listOf(metadata.toBusiness()))
                             span.setStatus(StatusCode.OK)
                             call.respond(HttpStatusCode.NoContent)
@@ -152,23 +156,24 @@ fun Routing.metadataRoutes(
             }
         }
 
-        get("{id}") {
-            val span = tracer
-                .spanBuilder("lori.LoriService.GET/api/v1/metadata/{id}")
-                .setSpanKind(SpanKind.SERVER)
-                .startSpan()
+        get {
+            val span =
+                tracer
+                    .spanBuilder("lori.LoriService.GET/api/v1/metadata?handle={handle}")
+                    .setSpanKind(SpanKind.SERVER)
+                    .startSpan()
             withContext(span.asContextElement()) {
                 try {
-                    val metadataId = call.parameters["id"]
-                    span.setAttribute("metadataId", metadataId ?: "null")
-                    if (metadataId == null) {
+                    val handle: String? = call.request.queryParameters["handle"]
+                    span.setAttribute("handle", handle ?: "null")
+                    if (handle == null) {
                         span.setStatus(StatusCode.ERROR, "BadRequest: No valid id has been provided in the url.")
                         call.respond(
                             HttpStatusCode.BadRequest,
-                            ApiError.badRequestError(ApiError.NO_VALID_ID)
+                            ApiError.badRequestError(ApiError.NO_VALID_ID),
                         )
                     } else {
-                        val metadataElements: List<ItemMetadata> = backend.getMetadataElementsByIds(listOf(metadataId))
+                        val metadataElements: List<ItemMetadata> = backend.getMetadataElementsByIds(listOf(handle))
                         metadataElements.takeIf { it.isNotEmpty() }?.let {
                             span.setStatus(StatusCode.OK)
                             call.respond(metadataElements.first().toRest())
@@ -176,7 +181,7 @@ fun Routing.metadataRoutes(
                             span.setStatus(StatusCode.ERROR)
                             call.respond(
                                 HttpStatusCode.NotFound,
-                                ApiError.notFoundError(ApiError.NO_RESOURCE_FOR_ID)
+                                ApiError.notFoundError(ApiError.NO_RESOURCE_FOR_ID),
                             )
                         }
                     }
@@ -190,10 +195,11 @@ fun Routing.metadataRoutes(
         }
 
         get("/list") {
-            val span = tracer
-                .spanBuilder("lori.LoriService.GET/api/v1/metadata/list")
-                .setSpanKind(SpanKind.SERVER)
-                .startSpan()
+            val span =
+                tracer
+                    .spanBuilder("lori.LoriService.GET/api/v1/metadata/list")
+                    .setSpanKind(SpanKind.SERVER)
+                    .startSpan()
             try {
                 val limit: Int = call.request.queryParameters["limit"]?.toInt() ?: 25
                 val offset: Int = call.request.queryParameters["offset"]?.toInt() ?: 0
@@ -201,17 +207,17 @@ fun Routing.metadataRoutes(
                     span.setStatus(StatusCode.ERROR, "BadRequest: Limit parameter is expected to be between (0,100]")
                     call.respond(
                         HttpStatusCode.BadRequest,
-                        ApiError.badRequestError("Limit parameter is expected to be between 1 and 100")
+                        ApiError.badRequestError("Limit parameter is expected to be between 1 and 100"),
                     )
                     return@get
                 } else if (offset < 0) {
                     span.setStatus(
                         StatusCode.ERROR,
-                        "BadRequest: Offset parameter is expected to be larger or equal zero"
+                        "BadRequest: Offset parameter is expected to be larger or equal zero",
                     )
                     call.respond(
                         HttpStatusCode.BadRequest,
-                        ApiError.badRequestError("Offset parameter is expected to be larger or equal zero")
+                        ApiError.badRequestError("Offset parameter is expected to be larger or equal zero"),
                     )
                     return@get
                 } else {

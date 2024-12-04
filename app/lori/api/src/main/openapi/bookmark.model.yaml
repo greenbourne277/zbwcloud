@@ -8,6 +8,11 @@ BookmarkRawRest:
       type: integer
     bookmarkName:
       type: string
+    createdBy:
+      type: string
+    createdOn:
+      type: string
+      format: date-time
     description:
       type: string
     searchTerm:
@@ -32,10 +37,19 @@ BookmarkRawRest:
       type: string
     filterZDBId:
       type: string
+    filterSeries:
+      type: string
     filterNoRightInformation:
       type: string
-    filterTemplateId:
+    filterTemplateName:
       type: string
+    filterLicenceUrl:
+      type: string
+    lastUpdatedBy:
+      type: string
+    lastUpdatedOn:
+      type: string
+      format: date-time
 
 BookmarkIdCreated:
   required:
@@ -55,12 +69,15 @@ BookmarkRest:
       type: integer
     bookmarkName:
       type: string
+    createdBy:
+      type: string
+    createdOn:
+      type: string
+      format: date-time
     description:
       type: string
-    searchKeys:
-      type: array
-      items:
-        $ref: 'bookmark.model.yaml#/SearchKeyRest'
+    searchTerm:
+      type: string
     filterPublicationDate:
       $ref: 'bookmark.model.yaml#/FilterPublicationDateRest'
     filterPublicationType:
@@ -96,12 +113,25 @@ BookmarkRest:
       type: array
       items:
         type: string
-    filterNoRightInformation:
-      type: boolean
-    filterTemplateId:
+    filterSeries:
       type: array
       items:
         type: string
+    filterNoRightInformation:
+      type: boolean
+    filterTemplateName:
+      type: array
+      items:
+        type: string
+    filterLicenceUrl:
+      type: string
+    lastUpdatedBy:
+      type: string
+    lastUpdatedOn:
+      type: string
+      format: date-time
+    filtersAsQuery:
+      type: string
 
 FilterPublicationDateRest:
   type: object
@@ -110,16 +140,3 @@ FilterPublicationDateRest:
       type: integer
     toYear:
       type: integer
-
-SearchKeyRest:
-  required:
-    - key
-    - value
-  type: object
-  properties:
-    key:
-      type: string
-    values:
-      type: array
-      items:
-        type: string

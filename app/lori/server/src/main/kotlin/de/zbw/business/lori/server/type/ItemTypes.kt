@@ -8,8 +8,12 @@ data class Item(
     val rights: List<ItemRight>,
 )
 
+data class ItemId(
+    val handle: String,
+    val rightId: String,
+)
+
 data class ItemMetadata(
-    val metadataId: String,
     val author: String?,
     val band: String?,
     val collectionHandle: String?,
@@ -22,25 +26,32 @@ data class ItemMetadata(
     val handle: String,
     val isbn: String?,
     val issn: String?,
+    val isPartOfSeries: String?,
     val lastUpdatedBy: String?,
     val lastUpdatedOn: OffsetDateTime?,
+    val licenceUrl: String?,
+    val licenceUrlFilter: String?,
     val paketSigel: String?,
     val ppn: String?,
     val publicationType: PublicationType,
-    val publicationDate: LocalDate,
+    val publicationDate: LocalDate?,
     val rightsK10plus: String?,
-    val subCommunitiesHandles: List<String>?,
+    val subCommunityHandle: String?,
+    val subCommunityName: String?,
     val storageDate: OffsetDateTime?,
     val title: String,
     val titleJournal: String?,
     val titleSeries: String?,
-    val zdbId: String?,
+    val zdbIdJournal: String?,
+    val zdbIdSeries: String?,
 )
 
-enum class AccessState {
-    CLOSED,
-    OPEN,
-    RESTRICTED,
+enum class AccessState(
+    val priority: Int,
+) {
+    OPEN(1),
+    RESTRICTED(2),
+    CLOSED(3),
 }
 
 enum class TemporalValidity {
@@ -49,16 +60,19 @@ enum class TemporalValidity {
     PRESENT,
 }
 
-enum class PublicationType {
-    ARTICLE,
-    BOOK,
-    BOOK_PART,
-    CONFERENCE_PAPER,
-    PERIODICAL_PART,
-    PROCEEDINGS,
-    RESEARCH_REPORT,
-    THESIS,
-    WORKING_PAPER,
+enum class PublicationType(
+    val priority: Int,
+) {
+    ARTICLE(1),
+    BOOK(2),
+    BOOK_PART(3),
+    CONFERENCE_PAPER(4),
+    OTHER(5),
+    PERIODICAL_PART(6),
+    PROCEEDING(7),
+    RESEARCH_REPORT(8),
+    THESIS(9),
+    WORKING_PAPER(10),
 }
 
 enum class BasisStorage {
@@ -88,7 +102,10 @@ data class ItemRight(
     val createdBy: String?,
     val createdOn: OffsetDateTime?,
     val endDate: LocalDate?,
-    val groupIds: List<String>?,
+    val exceptionFrom: String?,
+    val groupIds: List<Int>?,
+    val groups: List<Group>?,
+    val isTemplate: Boolean,
     val lastAppliedOn: OffsetDateTime?,
     val lastUpdatedBy: String?,
     val lastUpdatedOn: OffsetDateTime?,
@@ -103,7 +120,6 @@ data class ItemRight(
     val restrictedOpenContentLicence: Boolean?,
     val startDate: LocalDate,
     val templateDescription: String?,
-    val templateId: Int?,
     val templateName: String?,
     val zbwUserAgreement: Boolean?,
 )
@@ -111,5 +127,5 @@ data class ItemRight(
 enum class FormalRule {
     LICENCE_CONTRACT,
     OPEN_CONTENT_LICENCE,
-    ZBW_USER_AGREEMENT;
+    ZBW_USER_AGREEMENT,
 }

@@ -7,6 +7,7 @@ import searchquerybuilder from "@/utils/searchquerybuilder";
 import error from "@/utils/error";
 import { required } from "@vuelidate/validators";
 import { useVuelidate } from "@vuelidate/core";
+import {BookmarkIdCreated} from "@/generated-sources/openapi";
 
 export default defineComponent({
   emits: ["addBookmarkSuccessful"],
@@ -58,10 +59,11 @@ export default defineComponent({
         if (!isValid) {
           return;
         }
+        let bookmarkName = formState.name;
         updateInProgress.value = true;
         bookmarkApi
           .addRawBookmark(
-            formState.name,
+            bookmarkName,
             description.value,
             searchStore.lastSearchTerm,
             searchquerybuilder.buildPublicationDateFilter(searchStore),
@@ -75,9 +77,12 @@ export default defineComponent({
             searchquerybuilder.buildPaketSigelIdFilter(searchStore),
             searchquerybuilder.buildZDBIdFilter(searchStore),
             searchquerybuilder.buildNoRightInformation(searchStore),
+            searchquerybuilder.buildSeriesFilter(searchStore),
+            searchquerybuilder.buildTemplateNameFilter(searchStore),
+            searchquerybuilder.buildLicenceUrlFilter(searchStore),
           )
-          .then((r) => {
-            emit("addBookmarkSuccessful", r.bookmarkId);
+          .then((r: BookmarkIdCreated) => {
+            emit("addBookmarkSuccessful", r.bookmarkId, bookmarkName);
             close();
           })
           .catch((e) => {
@@ -108,14 +113,11 @@ export default defineComponent({
 <style scoped></style>
 
 <template>
-  <v-card>
+  <v-card position="relative">
     <v-container>
       <v-card-title>Suche Speichern</v-card-title>
       <v-row>
-        <v-col cols="4">
-          <div class="text-h6 mb-1">Name</div>
-          /
-        </v-col>
+        <v-col cols="4">Name</v-col>
         <v-col cols="8">
           <v-text-field
             v-model="formState.name"
@@ -139,7 +141,11 @@ export default defineComponent({
       <v-row>
         <v-col cols="4"> Beschreibung </v-col>
         <v-col cols="8">
-          <v-text-field v-model="description" outlined></v-text-field>
+          <v-text-field
+            hint="Beschreibung des Bookmarks"
+            v-model="description"
+            outlined
+          ></v-text-field>
         </v-col>
       </v-row>
       <v-card-actions>
@@ -152,9 +158,17 @@ export default defineComponent({
           @click="save"
         ></v-btn>
       </v-card-actions>
-      <v-alert v-model="saveAlertError" closable type="error">
-        Speichern war nicht erfolgreich: {{ saveAlertErrorMessage }}
-      </v-alert>
+      <v-snackbar
+          contained
+          multi-line
+          location="top"
+          timer="true"
+          timeout="10000"
+          v-model="saveAlertError"
+          color="error"
+      >
+        {{ saveAlertErrorMessage }}
+      </v-snackbar>
     </v-container>
   </v-card>
 </template>

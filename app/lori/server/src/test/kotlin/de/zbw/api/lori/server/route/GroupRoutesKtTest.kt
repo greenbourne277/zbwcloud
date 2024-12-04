@@ -21,6 +21,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import org.hamcrest.CoreMatchers.`is`
@@ -40,17 +41,18 @@ class GroupRoutesKtTest {
     @Test
     fun testGetGroupByIdOK() {
         // given
-        val groupId = "someId"
+        val groupId = 1
         val expected = TEST_GROUP.toRest()
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { getGroupById(groupId) } returns TEST_GROUP
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { getGroupById(groupId) } returns TEST_GROUP
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response = client.get("/api/v1/group/$groupId")
             val content: String = response.bodyAsText()
@@ -63,16 +65,17 @@ class GroupRoutesKtTest {
     @Test
     fun testGetGroupByIdNotFound() {
         // given
-        val groupId = "someId"
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { getGroupById(groupId) } returns null
-        }
+        val groupId = 1
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { getGroupById(groupId) } returns null
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response = client.get("/api/v1/group/$groupId")
             assertThat(response.status, `is`(HttpStatusCode.NotFound))
@@ -82,16 +85,17 @@ class GroupRoutesKtTest {
     @Test
     fun testGetGroupByIdInternalError() {
         // given
-        val groupId = "someId"
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { getGroupById(groupId) } throws SQLException()
-        }
+        val groupId = 1
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { getGroupById(groupId) } throws SQLException()
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response = client.get("/api/v1/group/$groupId")
             assertThat(response.status, `is`(HttpStatusCode.InternalServerError))
@@ -101,16 +105,17 @@ class GroupRoutesKtTest {
     @Test
     fun testDeleteByGroupIdOK() {
         // given
-        val groupId = "someId"
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { deleteGroup(groupId) } returns 1
-        }
+        val groupId = 1
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { deleteGroup(groupId) } returns 1
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response = client.delete("/api/v1/group/$groupId")
             assertThat(response.status, `is`(HttpStatusCode.OK))
@@ -120,16 +125,17 @@ class GroupRoutesKtTest {
     @Test
     fun testDeleteByGroupIdNotFound() {
         // given
-        val groupId = "someId"
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { deleteGroup(groupId) } returns 0
-        }
+        val groupId = 1
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { deleteGroup(groupId) } returns 0
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response = client.delete("/api/v1/group/$groupId")
             assertThat(response.status, `is`(HttpStatusCode.NotFound))
@@ -139,16 +145,17 @@ class GroupRoutesKtTest {
     @Test
     fun testDeleteByGroupIdInternalError() {
         // given
-        val groupId = "someId"
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { deleteGroup(groupId) } throws SQLException()
-        }
+        val groupId = 1
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { deleteGroup(groupId) } throws SQLException()
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response = client.delete("/api/v1/group/$groupId")
             assertThat(response.status, `is`(HttpStatusCode.InternalServerError))
@@ -158,21 +165,23 @@ class GroupRoutesKtTest {
     @Test
     fun testPostGroupCreated() {
         // given
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { insertGroup(any()) } returns "foobar"
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { insertGroup(any()) } returns 2
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.post("/api/v1/group") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(jsonAsString(TEST_GROUP.toRest()))
-            }
+            val response =
+                client.post("/api/v1/group") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(jsonAsString(TEST_GROUP.toRest()))
+                }
             assertThat("Should return 201", response.status, `is`(HttpStatusCode.Created))
         }
     }
@@ -180,21 +189,23 @@ class GroupRoutesKtTest {
     @Test
     fun testPostGroupBadRequest() {
         // given
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { insertGroup(any()) } returns "foobar"
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { insertGroup(any()) } returns 2
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.post("/api/v1/group") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(jsonAsString(TEST_RIGHT))
-            }
+            val response =
+                client.post("/api/v1/group") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(jsonAsString(TEST_RIGHT))
+                }
             assertThat("Should return 400", response.status, `is`(HttpStatusCode.BadRequest))
         }
     }
@@ -202,24 +213,27 @@ class GroupRoutesKtTest {
     @Test
     fun testPostGroupConflict() {
         // given
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { insertGroup(any()) } throws mockk<PSQLException> {
-                every { sqlState } returns ApiError.PSQL_CONFLICT_ERR_CODE
-                every { message } returns "error"
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { insertGroup(any()) } throws
+                    mockk<PSQLException> {
+                        every { sqlState } returns ApiError.PSQL_CONFLICT_ERR_CODE
+                        every { message } returns "error"
+                    }
             }
-        }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.post("/api/v1/group") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(jsonAsString(TEST_GROUP.toRest()))
-            }
+            val response =
+                client.post("/api/v1/group") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(jsonAsString(TEST_GROUP.toRest()))
+                }
             assertThat("Should return 409", response.status, `is`(HttpStatusCode.Conflict))
         }
     }
@@ -227,21 +241,23 @@ class GroupRoutesKtTest {
     @Test
     fun testPostGroupIAE() {
         // given
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { insertGroup(any()) } throws IllegalArgumentException()
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { insertGroup(any()) } throws IllegalArgumentException()
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.post("/api/v1/group") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(jsonAsString(TEST_GROUP.toRest()))
-            }
+            val response =
+                client.post("/api/v1/group") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(jsonAsString(TEST_GROUP.toRest()))
+                }
             assertThat("Should return 400", response.status, `is`(HttpStatusCode.BadRequest))
         }
     }
@@ -249,21 +265,23 @@ class GroupRoutesKtTest {
     @Test
     fun testPostGroupInternalError() {
         // given
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { insertGroup(any()) } throws SQLException()
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { insertGroup(any()) } throws SQLException()
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.post("/api/v1/group") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(jsonAsString(TEST_GROUP.toRest()))
-            }
+            val response =
+                client.post("/api/v1/group") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(jsonAsString(TEST_GROUP.toRest()))
+                }
             assertThat("Should return 500", response.status, `is`(HttpStatusCode.InternalServerError))
         }
     }
@@ -271,21 +289,23 @@ class GroupRoutesKtTest {
     @Test
     fun testPutGroupNoContent() {
         // given
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { updateGroup(any()) } returns 1
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { updateGroup(any()) } returns 1
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.put("/api/v1/group") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(jsonAsString(TEST_GROUP.toRest()))
-            }
+            val response =
+                client.put("/api/v1/group") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(jsonAsString(TEST_GROUP.toRest()))
+                }
             assertThat("Should return 204", response.status, `is`(HttpStatusCode.NoContent))
         }
     }
@@ -293,21 +313,23 @@ class GroupRoutesKtTest {
     @Test
     fun testPutGroupBadRequest() {
         // given
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { updateGroup(any()) } returns 1
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { updateGroup(any()) } returns 1
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.put("/api/v1/group") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(jsonAsString(TEST_RIGHT))
-            }
+            val response =
+                client.put("/api/v1/group") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(jsonAsString(TEST_RIGHT))
+                }
             assertThat("Should return 400", response.status, `is`(HttpStatusCode.BadRequest))
         }
     }
@@ -315,21 +337,23 @@ class GroupRoutesKtTest {
     @Test
     fun testPutGroupNotFound() {
         // given
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { updateGroup(any()) } returns 0
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { updateGroup(any()) } returns 0
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.put("/api/v1/group") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(jsonAsString(TEST_GROUP.toRest()))
-            }
+            val response =
+                client.put("/api/v1/group") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(jsonAsString(TEST_GROUP.toRest()))
+                }
             assertThat("Should return 404", response.status, `is`(HttpStatusCode.NotFound))
         }
     }
@@ -337,21 +361,23 @@ class GroupRoutesKtTest {
     @Test
     fun testPutGroupInternalError() {
         // given
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { updateGroup(any()) } throws SQLException()
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { updateGroup(any()) } throws SQLException()
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
-            val response = client.put("/api/v1/group") {
-                header(HttpHeaders.Accept, ContentType.Application.Json)
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                setBody(jsonAsString(TEST_GROUP.toRest()))
-            }
+            val response =
+                client.put("/api/v1/group") {
+                    header(HttpHeaders.Accept, ContentType.Application.Json)
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    setBody(jsonAsString(TEST_GROUP.toRest()))
+                }
             assertThat("Should return 500", response.status, `is`(HttpStatusCode.InternalServerError))
         }
     }
@@ -362,15 +388,16 @@ class GroupRoutesKtTest {
         val limit = 50
         val offset = 0
         val expected = listOf(TEST_GROUP.toRest())
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { getGroupList(limit, offset) } returns listOf(TEST_GROUP)
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { getGroupList(limit, offset) } returns listOf(TEST_GROUP)
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response = client.get("/api/v1/group/list?limit=$limit&offset=$offset")
             val content: String = response.bodyAsText()
@@ -385,21 +412,24 @@ class GroupRoutesKtTest {
         // given
         val limit = 50
         val offset = 0
-        val givenGroup = Group(
-            name = "foo",
-            entries = emptyList(),
-            description = null,
-        )
+        val givenGroup =
+            Group(
+                groupId = 1,
+                entries = emptyList(),
+                description = null,
+                title = "foo",
+            )
         val expected = listOf(givenGroup.toRest())
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { getGroupListIdsOnly(limit, offset) } returns listOf(givenGroup)
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { getGroupListIdsOnly(limit, offset) } returns listOf(givenGroup)
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response = client.get("/api/v1/group/list?limit=$limit&offset=$offset&idOnly=True")
             val content: String = response.bodyAsText()
@@ -420,7 +450,7 @@ class GroupRoutesKtTest {
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response = client.get("/api/v1/group/list?limit=$limit&offset=$offset")
             assertThat(response.status, `is`(HttpStatusCode.BadRequest))
@@ -432,15 +462,16 @@ class GroupRoutesKtTest {
         // given
         val limit = 5
         val offset = 0
-        val backend = mockk<LoriServerBackend>(relaxed = true) {
-            every { getGroupList(limit, offset) } throws SQLException()
-        }
+        val backend =
+            mockk<LoriServerBackend>(relaxed = true) {
+                coEvery { getGroupList(limit, offset) } throws SQLException()
+            }
         val servicePool = getServicePool(backend)
         // when + then
         testApplication {
             moduleAuthForTests()
             application(
-                servicePool.testApplication()
+                servicePool.testApplication(),
             )
             val response = client.get("/api/v1/group/list?limit=$limit&offset=$offset")
             assertThat(response.status, `is`(HttpStatusCode.InternalServerError))
@@ -448,15 +479,18 @@ class GroupRoutesKtTest {
     }
 
     companion object {
-        val TEST_GROUP = Group(
-            name = "name",
-            description = "some description",
-            entries = listOf(
-                GroupEntry(
-                    organisationName = "some organisation",
-                    ipAddresses = "192.168.1.127",
-                )
+        val TEST_GROUP =
+            Group(
+                groupId = 1,
+                description = "some description",
+                entries =
+                    listOf(
+                        GroupEntry(
+                            organisationName = "some organisation",
+                            ipAddresses = "192.168.1.127",
+                        ),
+                    ),
+                title = "some title",
             )
-        )
     }
 }

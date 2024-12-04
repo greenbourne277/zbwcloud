@@ -1,4 +1,6 @@
 import {
+  AboutApi,
+  AboutRest,
   Configuration,
   GroupApi,
   GroupIdCreated,
@@ -19,6 +21,7 @@ const configuration = new Configuration({
 const loriItem = new ItemApi(configuration);
 const loriRightApi = new RightApi(configuration);
 const loriGroupApi = new GroupApi(configuration);
+const loriAboutApi = new AboutApi(configuration);
 
 export default {
   /**
@@ -29,12 +32,12 @@ export default {
       body: newGroup,
     });
   },
-  deleteGroup(groupId: string): Promise<void> {
+  deleteGroup(groupId: number): Promise<void> {
     return loriGroupApi.deleteGroupById({
       id: groupId,
     });
   },
-  getGroupById(groupId: string): Promise<GroupRest> {
+  getGroupById(groupId: number): Promise<GroupRest> {
     return loriGroupApi.getGroupById({
       id: groupId,
     });
@@ -76,8 +79,11 @@ export default {
   deleteRight(rightId: string): Promise<void> {
     return loriRightApi.deleteRightById({ id: rightId });
   },
-  deleteItemRelation(metadataId: string, rightId: string): Promise<void> {
-    return loriItem.deleteItem({ metadataId: metadataId, rightId: rightId });
+  deleteItemRelation(handle: string, rightId: string): Promise<void> {
+    return loriItem.deleteItem({ handle: handle, rightId: rightId });
+  },
+  getAboutInformation(): Promise<AboutRest> {
+    return loriAboutApi.getAboutInformation();
   },
   searchQuery(
     searchTerm: string,
@@ -95,7 +101,9 @@ export default {
     filterPaketSigel: string | undefined,
     filterZDBId: string | undefined,
     filterNoRightInformation: string | undefined,
-    filterTemplateId: string | undefined,
+    filterRightId: string | undefined,
+    filterSeries: string | undefined,
+    filterLicenceUrl: string | undefined,
   ): Promise<ItemInformation> {
     return loriItem.getSearchResult({
       searchTerm: searchTerm,
@@ -113,7 +121,9 @@ export default {
       filterPaketSigel: filterPaketSigel,
       filterZDBId: filterZDBId,
       filterNoRightInformation: filterNoRightInformation,
-      filterTemplateId: filterTemplateId,
+      filterRightId: filterRightId,
+      filterSeries: filterSeries,
+      filterLicenceUrl,
     });
   },
 };

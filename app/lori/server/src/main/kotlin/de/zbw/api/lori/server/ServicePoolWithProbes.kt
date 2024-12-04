@@ -5,6 +5,7 @@ import com.google.gson.JsonPrimitive
 import com.google.gson.JsonSerializer
 import de.zbw.api.lori.server.config.LoriConfiguration
 import de.zbw.api.lori.server.route.ApiError
+import de.zbw.api.lori.server.route.aboutRoutes
 import de.zbw.api.lori.server.route.bookmarkRoutes
 import de.zbw.api.lori.server.route.bookmarkTemplateRoutes
 import de.zbw.api.lori.server.route.errorRoutes
@@ -16,8 +17,8 @@ import de.zbw.api.lori.server.route.rightRoutes
 import de.zbw.api.lori.server.route.staticRoutes
 import de.zbw.api.lori.server.route.templateRoutes
 import de.zbw.api.lori.server.route.usersRoutes
-import de.zbw.api.lori.server.type.SamlUtils
 import de.zbw.api.lori.server.type.UserSession
+import de.zbw.api.lori.server.utils.SamlUtils
 import de.zbw.business.lori.server.LoriServerBackend
 import de.zbw.business.lori.server.type.UserPermission
 import io.ktor.http.HttpStatusCode
@@ -41,6 +42,8 @@ import io.ktor.server.sessions.Sessions
 import io.ktor.server.sessions.cookie
 import io.ktor.util.hex
 import io.opentelemetry.api.trace.Tracer
+import org.apache.http.impl.client.HttpClients
+import org.opensaml.saml.metadata.resolver.impl.HTTPMetadataResolver
 import org.slf4j.event.Level
 import java.time.Instant
 import java.time.LocalDate
@@ -59,27 +62,38 @@ class ServicePoolWithProbes(
     val config: LoriConfiguration,
     private val backend: LoriServerBackend,
     private val tracer: Tracer,
-    private val samlUtils: SamlUtils = SamlUtils(backend.config.duoSenderEntityId),
+    private val samlUtils: SamlUtils,
+    httpClient: HTTPMetadataResolver =
+        HTTPMetadataResolver(
+            HttpClients.createDefault(),
+            config.duoUrlMetadata,
+        ),
 ) : ServiceLifecycle() {
+    init {
+        samlUtils.initMetadataResolver(httpClient)
+    }
 
-    private var server: NettyApplicationEngine = embeddedServer(
-        Netty,
-        port = config.httpPort,
-        module = application(),
-    )
+    private var server: NettyApplicationEngine =
+        embeddedServer(
+            Netty,
+            port = config.httpPort,
+            module = application(),
+        )
 
     // This method is a hack due to ktors extension based design. It makes
     // testing a lot easier here.
     internal fun getHttpServer(): NettyApplicationEngine = server
 
-    private fun application(): Application.() -> Unit = {
-        auth()
-        allNonAuth()
-    }
+    private fun application(): Application.() -> Unit =
+        {
+            auth()
+            allNonAuth()
+        }
 
-    internal fun testApplication(): Application.() -> Unit = {
-        allNonAuth()
-    }
+    internal fun testApplication(): Application.() -> Unit =
+        {
+            allNonAuth()
+        }
 
     private fun Application.allNonAuth() {
         install(ContentNegotiation) {
@@ -88,27 +102,28 @@ class ServicePoolWithProbes(
                 registerTypeAdapter(
                     OffsetDateTime::class.java,
                     JsonDeserializer { json, _, _ ->
-                        ZonedDateTime.parse(json.asString, DateTimeFormatter.ISO_ZONED_DATE_TIME)
+                        ZonedDateTime
+                            .parse(json.asString, DateTimeFormatter.ISO_ZONED_DATE_TIME)
                             .toOffsetDateTime()
-                    }
+                    },
                 )
                 registerTypeAdapter(
                     OffsetDateTime::class.java,
                     JsonSerializer<OffsetDateTime> { obj, _, _ ->
                         JsonPrimitive(obj.toString())
-                    }
+                    },
                 )
                 registerTypeAdapter(
                     LocalDate::class.java,
                     JsonDeserializer { json, _, _ ->
                         LocalDate.parse(json.asString, DateTimeFormatter.ISO_LOCAL_DATE)
-                    }
+                    },
                 )
                 registerTypeAdapter(
                     LocalDate::class.java,
                     JsonSerializer<LocalDate> { obj, _, _ ->
                         JsonPrimitive(obj.toString())
-                    }
+                    },
                 )
             }
         }
@@ -147,6 +162,7 @@ class ServicePoolWithProbes(
                     call.respond(HttpStatusCode.InternalServerError)
                 }
             }
+            aboutRoutes(backend, tracer)
             bookmarkRoutes(backend, tracer)
             bookmarkTemplateRoutes(backend, tracer)
             errorRoutes(backend, tracer)
@@ -165,14 +181,16 @@ class ServicePoolWithProbes(
         install(Authentication) {
             session<UserSession>("auth-session") {
                 validate { session: UserSession ->
-                    backend.getSessionById(session.sessionId)
+                    backend
+                        .getSessionById(session.sessionId)
                         ?.takeIf { s ->
                             s.validUntil > Instant.now() &&
                                 (
-                                    s.permissions.contains(UserPermission.WRITE) || s.permissions.contains(
-                                        UserPermission.ADMIN
-                                    )
-                                    )
+                                    s.permissions.contains(UserPermission.WRITE) ||
+                                        s.permissions.contains(
+                                            UserPermission.ADMIN,
+                                        )
+                                )
                         }?.let { session }
                 }
                 challenge {
@@ -183,7 +201,8 @@ class ServicePoolWithProbes(
             }
             session<UserSession>("auth-login") {
                 validate { session: UserSession ->
-                    backend.getSessionById(session.sessionId)
+                    backend
+                        .getSessionById(session.sessionId)
                         ?.takeIf { s ->
                             s.validUntil > Instant.now() &&
                                 s.firstName == session.email
@@ -200,14 +219,16 @@ class ServicePoolWithProbes(
     }
 
     override fun isReady(): Boolean =
-        services.map {
-            it.isReady()
-        }.all { it }
+        services
+            .map {
+                it.isReady()
+            }.all { it }
 
     override fun isHealthy(): Boolean =
-        services.map {
-            it.isHealthy()
-        }.all { it }
+        services
+            .map {
+                it.isHealthy()
+            }.all { it }
 
     override fun start() {
         services.forEach {
