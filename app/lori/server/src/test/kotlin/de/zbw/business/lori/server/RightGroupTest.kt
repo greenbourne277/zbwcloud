@@ -4,17 +4,24 @@ import de.zbw.api.lori.server.exception.ResourceStillInUseException
 import de.zbw.api.lori.server.type.RestConverterTest
 import de.zbw.business.lori.server.type.Group
 import de.zbw.business.lori.server.type.GroupEntry
+import de.zbw.business.lori.server.type.GroupVersion
 import de.zbw.business.lori.server.type.ItemRight
 import de.zbw.persistence.lori.server.ConnectionPool
 import de.zbw.persistence.lori.server.DatabaseConnector
 import de.zbw.persistence.lori.server.DatabaseTest
+import de.zbw.persistence.lori.server.GroupDBTest.Companion.NOW
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkAll
 import io.opentelemetry.api.OpenTelemetry
 import kotlinx.coroutines.runBlocking
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.MatcherAssert.assertThat
 import org.testng.Assert.fail
+import org.testng.annotations.AfterClass
 import org.testng.annotations.Test
+import java.time.Instant
 
 /**
  * Test function related to Group-Right entries.
@@ -32,9 +39,16 @@ class RightGroupTest : DatabaseTest() {
             mockk(),
         )
 
+    @AfterClass
+    fun afterTests() {
+        unmockkAll()
+    }
+
     @Test
-    fun rightGroupRoundtrip() =
+    fun rightGroupRoundTrip() =
         runBlocking {
+            mockkStatic(Instant::class)
+            every { Instant.now() } returns NOW.toInstant()
             // Given group
             val group1 =
                 Group(
@@ -48,11 +62,23 @@ class RightGroupTest : DatabaseTest() {
                             ),
                         ),
                     title = "some title",
+                    createdOn = NOW.minusMonths(1L),
+                    lastUpdatedOn = NOW,
+                    createdBy = "user1",
+                    lastUpdatedBy = "user2",
+                    version = 0,
+                    oldVersions = emptyList(),
                 )
 
             // Insert group
             val receivedGroupId1 = backend.insertGroup(group1)
-            val expectedGroup1 = group1.copy(groupId = receivedGroupId1)
+            val expectedGroup1 =
+                group1.copy(
+                    groupId = receivedGroupId1,
+                    lastUpdatedOn = NOW,
+                    createdOn = NOW,
+                    lastUpdatedBy = "user1",
+                )
 
             // Insert Right using the group
             val initialRight: ItemRight =
@@ -67,7 +93,7 @@ class RightGroupTest : DatabaseTest() {
 
             // Verify insertions
             assertThat(
-                backend.getGroupById(receivedGroupId1),
+                backend.getGroupById(receivedGroupId1, null),
                 `is`(expectedGroup1),
             )
 
@@ -75,6 +101,39 @@ class RightGroupTest : DatabaseTest() {
                 backend.dbConnector.groupDB.getGroupsByRightId(rightId1),
                 `is`(
                     listOf(expectedGroup1),
+                ),
+            )
+            // Update group
+            backend.updateGroup(expectedGroup1.copy(description = "foo bar 555"), "user3")
+            val expectedGroup1Version2 =
+                expectedGroup1.copy(
+                    description = "foo bar 555",
+                    version = 1,
+                    lastUpdatedBy = "user3",
+                    createdBy = "user3",
+                )
+            assertThat(
+                backend.getGroupById(receivedGroupId1, 1),
+                `is`(
+                    expectedGroup1Version2.copy(
+                        oldVersions =
+                            listOf(
+                                GroupVersion(
+                                    groupId = expectedGroup1.groupId,
+                                    createdBy = expectedGroup1.createdBy!!,
+                                    createdOn = expectedGroup1.createdOn!!,
+                                    description = expectedGroup1.description,
+                                    version = 0,
+                                ),
+                            ),
+                    ),
+                ),
+            )
+
+            assertThat(
+                backend.dbConnector.groupDB.getGroupsByRightId(rightId1),
+                `is`(
+                    listOf(expectedGroup1Version2),
                 ),
             )
 
@@ -92,10 +151,22 @@ class RightGroupTest : DatabaseTest() {
                             ),
                         ),
                     title = "some title2",
+                    createdOn = NOW.minusMonths(1L),
+                    lastUpdatedOn = NOW,
+                    createdBy = "user1",
+                    lastUpdatedBy = "user2",
+                    version = 0,
+                    oldVersions = emptyList(),
                 )
 
             val receivedGroupId2 = backend.insertGroup(group2)
-            val expectedGroup2 = group2.copy(groupId = receivedGroupId2)
+            val expectedGroup2 =
+                group2.copy(
+                    groupId = receivedGroupId2,
+                    createdOn = NOW,
+                    lastUpdatedOn = NOW,
+                    lastUpdatedBy = "user1",
+                )
             val rightUpdated =
                 TEST_RIGHT.copy(
                     rightId = rightId1,
@@ -113,7 +184,7 @@ class RightGroupTest : DatabaseTest() {
                     .getGroupsByRightId(rightId1)
                     .toSet(),
                 `is`(
-                    setOf(expectedGroup1, expectedGroup2),
+                    setOf(expectedGroup1Version2, expectedGroup2),
                 ),
             )
 

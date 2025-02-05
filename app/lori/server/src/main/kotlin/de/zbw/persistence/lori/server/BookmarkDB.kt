@@ -1,13 +1,15 @@
 package de.zbw.persistence.lori.server
 
 import de.zbw.business.lori.server.AccessStateFilter
+import de.zbw.business.lori.server.AccessStateOnDateFilter
 import de.zbw.business.lori.server.EndDateFilter
 import de.zbw.business.lori.server.FormalRuleFilter
 import de.zbw.business.lori.server.LicenceUrlFilter
+import de.zbw.business.lori.server.ManualRightFilter
 import de.zbw.business.lori.server.NoRightInformationFilter
 import de.zbw.business.lori.server.PaketSigelFilter
-import de.zbw.business.lori.server.PublicationDateFilter
 import de.zbw.business.lori.server.PublicationTypeFilter
+import de.zbw.business.lori.server.PublicationYearFilter
 import de.zbw.business.lori.server.RightValidOnFilter
 import de.zbw.business.lori.server.SeriesFilter
 import de.zbw.business.lori.server.StartDateFilter
@@ -38,7 +40,7 @@ class BookmarkDB(
     private val tracer: Tracer,
 ) {
     suspend fun deleteBookmarkById(bookmarkId: Int): Int =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("deleteBookmarkById") { connection ->
             val prepStmt =
                 connection.prepareStatement(STATEMENT_DELETE_BOOKMARK_BY_ID).apply {
                     this.setInt(1, bookmarkId)
@@ -53,7 +55,7 @@ class BookmarkDB(
         }
 
     suspend fun insertBookmark(bookmarkRest: Bookmark): Int =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("insertBookmark") { connection ->
             val prepStmt =
                 insertUpdateSetParameters(
                     bookmarkRest,
@@ -76,7 +78,7 @@ class BookmarkDB(
         }
 
     suspend fun getBookmarksByIds(bookmarkIds: List<Int>): List<Bookmark> =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("getBookmarksByIds") { connection ->
             val prepStmt =
                 connection.prepareStatement(STATEMENT_GET_BOOKMARKS).apply {
                     this.setArray(1, connection.createArrayOf("integer", bookmarkIds.toTypedArray()))
@@ -103,13 +105,13 @@ class BookmarkDB(
         bookmarkId: Int,
         bookmark: Bookmark,
     ): Int =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("updateBookmarkById") { connection ->
             val prepStmt =
                 insertUpdateSetParameters(
                     bookmark,
                     connection.prepareStatement(STATEMENT_UPDATE_BOOKMARK),
                 ).apply {
-                    this.setInt(22, bookmarkId)
+                    this.setInt(25, bookmarkId)
                 }
             val span = tracer.spanBuilder("updateBookmarkById").startSpan()
             try {
@@ -124,7 +126,7 @@ class BookmarkDB(
         limit: Int,
         offset: Int,
     ): List<Bookmark> =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("getBookmarkList") { connection ->
             val prepStmt =
                 connection.prepareStatement(STATEMENT_GET_BOOKMARK_LIST).apply {
                     this.setInt(1, limit)
@@ -149,32 +151,63 @@ class BookmarkDB(
             }.takeWhile { true }.toList()
         }
 
+    suspend fun getBookmarkNamesByQuerystring(query: String): List<String> =
+        connectionPool.useConnection("getBookmarkNamesByQuerystring") { connection ->
+            val prepStmt =
+                connection.prepareStatement(STATEMENT_GET_BOOKMARK_BY_QUERYSTRING).apply {
+                    this.setString(1, query)
+                }
+
+            val span = tracer.spanBuilder("getBookmarkIdsByQuerystring").startSpan()
+            val rs =
+                try {
+                    span.makeCurrent()
+                    runInTransaction(connection) { prepStmt.executeQuery() }
+                } finally {
+                    span.end()
+                }
+            return@useConnection generateSequence {
+                if (rs.next()) {
+                    rs.getString(1)
+                } else {
+                    null
+                }
+            }.takeWhile { true }.toList()
+        }
+
     companion object {
         private const val COLUMN_BOOKMARK_ID = "bookmark_id"
+        private const val COLUMN_BOOKMARK_NAME = "bookmark_name"
         const val COLUMN_FILTER_LICENCE_URL = "filter_licence_url"
+        const val COLUMN_FILTER_MANUAL_RIGHT = "filter_manual_right"
+        const val COLUMN_FILTER_ACCESS_STATE_ON = "filter_access_state_on"
+        const val COLUMN_QUERYSTRING = "querystring"
 
         const val STATEMENT_GET_BOOKMARKS =
             "SELECT " +
-                "bookmark_id,bookmark_name,description,search_term," +
-                "filter_publication_date,filter_access_state,filter_temporal_validity," +
+                "$COLUMN_BOOKMARK_ID,$COLUMN_BOOKMARK_NAME,description,search_term," +
+                "filter_publication_year,filter_access_state,filter_temporal_validity," +
                 "filter_start_date,filter_end_date,filter_formal_rule," +
                 "filter_valid_on,filter_paket_sigel,filter_zdb_id," +
                 "filter_no_right_information,filter_publication_type," +
                 "created_on,last_updated_on,created_by,last_updated_by," +
-                "filter_series,filter_template_name,$COLUMN_FILTER_LICENCE_URL" +
+                "filter_series,filter_template_name,$COLUMN_FILTER_LICENCE_URL," +
+                "$COLUMN_FILTER_MANUAL_RIGHT,$COLUMN_FILTER_ACCESS_STATE_ON,$COLUMN_QUERYSTRING" +
                 " FROM $TABLE_NAME_BOOKMARK" +
                 " WHERE $COLUMN_BOOKMARK_ID = ANY(?)"
 
         const val STATEMENT_INSERT_BOOKMARK =
             "INSERT INTO $TABLE_NAME_BOOKMARK" +
-                "(bookmark_name,search_term,description,filter_publication_date," +
+                "($COLUMN_BOOKMARK_NAME,search_term,description,filter_publication_year," +
                 "filter_access_state,filter_temporal_validity,filter_start_date," +
                 "filter_end_date,filter_formal_rule,filter_valid_on," +
                 "filter_paket_sigel,filter_zdb_id,filter_no_right_information," +
                 "filter_publication_type,created_on,last_updated_on,created_by," +
-                "last_updated_by,filter_series,filter_template_name,$COLUMN_FILTER_LICENCE_URL" +
+                "last_updated_by,filter_series,filter_template_name,$COLUMN_FILTER_LICENCE_URL," +
+                "$COLUMN_FILTER_MANUAL_RIGHT,$COLUMN_FILTER_ACCESS_STATE_ON,$COLUMN_QUERYSTRING" +
                 ")" +
                 " VALUES(?,?,?," +
+                "?,?,?," +
                 "?,?,?," +
                 "?,?,?," +
                 "?,?,?," +
@@ -183,20 +216,23 @@ class BookmarkDB(
                 "?,?,?)"
 
         const val STATEMENT_DELETE_BOOKMARK_BY_ID =
-            "DELETE " +
-                "FROM $TABLE_NAME_BOOKMARK" +
+            "DELETE" +
+                " FROM $TABLE_NAME_BOOKMARK" +
                 " WHERE $COLUMN_BOOKMARK_ID = ?"
 
         const val STATEMENT_UPDATE_BOOKMARK =
             "INSERT INTO $TABLE_NAME_BOOKMARK" +
-                "(bookmark_name,search_term,description,filter_publication_date," +
+                "($COLUMN_BOOKMARK_NAME,search_term,description,filter_publication_year," +
                 "filter_access_state,filter_temporal_validity,filter_start_date," +
                 "filter_end_date,filter_formal_rule,filter_valid_on," +
                 "filter_paket_sigel,filter_zdb_id,filter_no_right_information," +
                 "filter_publication_type,created_on,last_updated_on," +
                 "created_by,last_updated_by," +
-                "filter_series,filter_template_name,$COLUMN_FILTER_LICENCE_URL,$COLUMN_BOOKMARK_ID)" +
+                "filter_series,filter_template_name,$COLUMN_FILTER_LICENCE_URL," +
+                "$COLUMN_FILTER_MANUAL_RIGHT,$COLUMN_FILTER_ACCESS_STATE_ON," +
+                "$COLUMN_QUERYSTRING,$COLUMN_BOOKMARK_ID)" +
                 " VALUES(?,?,?," +
+                "?,?,?," +
                 "?,?,?," +
                 "?,?,?," +
                 "?,?,?," +
@@ -206,10 +242,10 @@ class BookmarkDB(
                 "?)" +
                 " ON CONFLICT ($COLUMN_BOOKMARK_ID)" +
                 " DO UPDATE SET" +
-                " bookmark_name = EXCLUDED.bookmark_name," +
+                " $COLUMN_BOOKMARK_NAME = EXCLUDED.$COLUMN_BOOKMARK_NAME," +
                 " search_term = EXCLUDED.search_term," +
                 " description = EXCLUDED.description," +
-                " filter_publication_date = EXCLUDED.filter_publication_date," +
+                " filter_publication_year = EXCLUDED.filter_publication_year," +
                 " filter_access_state = EXCLUDED.filter_access_state," +
                 " filter_temporal_validity = EXCLUDED.filter_temporal_validity," +
                 " filter_start_date = EXCLUDED.filter_start_date," +
@@ -224,19 +260,28 @@ class BookmarkDB(
                 " last_updated_by = EXCLUDED.last_updated_by," +
                 " filter_series = EXCLUDED.filter_series," +
                 " filter_template_name = EXCLUDED.filter_template_name," +
-                " $COLUMN_FILTER_LICENCE_URL = EXCLUDED.$COLUMN_FILTER_LICENCE_URL;"
+                " $COLUMN_FILTER_LICENCE_URL = EXCLUDED.$COLUMN_FILTER_LICENCE_URL," +
+                " $COLUMN_FILTER_MANUAL_RIGHT = EXCLUDED.$COLUMN_FILTER_MANUAL_RIGHT," +
+                " $COLUMN_QUERYSTRING = EXCLUDED.$COLUMN_QUERYSTRING," +
+                " $COLUMN_FILTER_ACCESS_STATE_ON = EXCLUDED.$COLUMN_FILTER_ACCESS_STATE_ON;"
 
         const val STATEMENT_GET_BOOKMARK_LIST =
             "SELECT" +
-                " bookmark_id,bookmark_name,description,search_term," +
-                "filter_publication_date,filter_access_state,filter_temporal_validity," +
+                " $COLUMN_BOOKMARK_ID,$COLUMN_BOOKMARK_NAME,description,search_term," +
+                "filter_publication_year,filter_access_state,filter_temporal_validity," +
                 "filter_start_date,filter_end_date,filter_formal_rule," +
                 "filter_valid_on,filter_paket_sigel,filter_zdb_id," +
                 "filter_no_right_information,filter_publication_type," +
                 "created_on,last_updated_on,created_by,last_updated_by," +
-                "filter_series,filter_template_name,$COLUMN_FILTER_LICENCE_URL" +
+                "filter_series,filter_template_name,$COLUMN_FILTER_LICENCE_URL," +
+                "$COLUMN_FILTER_MANUAL_RIGHT,$COLUMN_FILTER_ACCESS_STATE_ON,$COLUMN_QUERYSTRING" +
                 " FROM $TABLE_NAME_BOOKMARK" +
                 " ORDER BY created_on DESC LIMIT ? OFFSET ?;"
+
+        const val STATEMENT_GET_BOOKMARK_BY_QUERYSTRING =
+            "SELECT $COLUMN_BOOKMARK_NAME" +
+                " FROM $TABLE_NAME_BOOKMARK" +
+                " WHERE $COLUMN_QUERYSTRING = ?;"
 
         private fun extractBookmark(rs: ResultSet): Bookmark =
             Bookmark(
@@ -244,7 +289,7 @@ class BookmarkDB(
                 bookmarkName = rs.getString(2),
                 description = rs.getString(3),
                 searchTerm = rs.getString(4),
-                publicationDateFilter = PublicationDateFilter.fromString(rs.getString(5)),
+                publicationYearFilter = PublicationYearFilter.fromString(rs.getString(5)),
                 accessStateFilter = AccessStateFilter.fromString(rs.getString(6)),
                 temporalValidityFilter = TemporalValidityFilter.fromString(rs.getString(7)),
                 startDateFilter = StartDateFilter.fromString(rs.getString(8)),
@@ -274,6 +319,9 @@ class BookmarkDB(
                 seriesFilter = SeriesFilter.fromString(rs.getString(20)),
                 templateNameFilter = TemplateNameFilter.fromString(rs.getString(21)),
                 licenceURLFilter = LicenceUrlFilter.fromString(rs.getString(22)),
+                manualRightFilter = ManualRightFilter.fromString(rs.getBoolean(23).toString()),
+                accessStateOnFilter = AccessStateOnDateFilter.fromString(rs.getString(24)),
+                queryString = rs.getString(25),
             )
 
         private fun insertUpdateSetParameters(
@@ -289,7 +337,7 @@ class BookmarkDB(
                 this.setIfNotNull(3, bookmark.description) { value, idx, prepStmt ->
                     prepStmt.setString(idx, value)
                 }
-                this.setIfNotNull(4, bookmark.publicationDateFilter) { value, idx, prepStmt ->
+                this.setIfNotNull(4, bookmark.publicationYearFilter) { value, idx, prepStmt ->
                     prepStmt.setString(idx, value.toSQLString())
                 }
                 this.setIfNotNull(5, bookmark.accessStateFilter) { value, idx, prepStmt ->
@@ -339,6 +387,13 @@ class BookmarkDB(
                 this.setIfNotNull(21, bookmark.licenceURLFilter) { value, idx, prepStmt ->
                     prepStmt.setString(idx, value.toSQLString())
                 }
+                this.setIfNotNull(22, bookmark.manualRightFilter) { _, idx, prepStmt ->
+                    prepStmt.setBoolean(idx, true)
+                }
+                this.setIfNotNull(23, bookmark.accessStateOnFilter) { value, idx, prepStmt ->
+                    prepStmt.setString(idx, value.toSQLString())
+                }
+                this.setString(24, bookmark.computeQueryString())
             }
         }
     }

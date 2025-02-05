@@ -7,10 +7,11 @@ import de.zbw.business.lori.server.EndDateFilter
 import de.zbw.business.lori.server.FormalRuleFilter
 import de.zbw.business.lori.server.LicenceUrlFilter
 import de.zbw.business.lori.server.LoriServerBackend
+import de.zbw.business.lori.server.ManualRightFilter
 import de.zbw.business.lori.server.NoRightInformationFilter
 import de.zbw.business.lori.server.PaketSigelFilter
-import de.zbw.business.lori.server.PublicationDateFilter
 import de.zbw.business.lori.server.PublicationTypeFilter
+import de.zbw.business.lori.server.PublicationYearFilter
 import de.zbw.business.lori.server.RightValidOnFilter
 import de.zbw.business.lori.server.SeriesFilter
 import de.zbw.business.lori.server.StartDateFilter
@@ -77,7 +78,7 @@ fun Routing.itemRoutes(
                             )
                         } else {
                             val deleteOnConflict: Boolean =
-                                call.request.queryParameters["deleteRightOnConflict"]?.toBoolean() ?: false
+                                call.request.queryParameters["deleteRightOnConflict"]?.toBoolean() == true
                             when (val ret = backend.insertItemEntry(item.handle, item.rightId, deleteOnConflict)) {
                                 is Either.Left -> {
                                     call.respond(ret.value.first, ret.value.second)
@@ -366,9 +367,10 @@ fun Routing.itemRoutes(
                     val searchTerm: String? = call.request.queryParameters["searchTerm"]
                     val limit: Int = call.request.queryParameters["limit"]?.toInt() ?: 25
                     val offset: Int = call.request.queryParameters["offset"]?.toInt() ?: 0
+                    val facetsOnly: Boolean = call.request.queryParameters["facetsOnly"]?.toBoolean() == true
                     val pageSize: Int = call.request.queryParameters["pageSize"]?.toInt() ?: 1
-                    val publicationDateFilter: PublicationDateFilter? =
-                        QueryParameterParser.parsePublicationDateFilter(call.request.queryParameters["filterPublicationDate"])
+                    val publicationYearFilter: PublicationYearFilter? =
+                        QueryParameterParser.parsePublicationYearFilter(call.request.queryParameters["filterPublicationYear"])
                     val publicationTypeFilter: PublicationTypeFilter? =
                         QueryParameterParser.parsePublicationTypeFilter(call.request.queryParameters["filterPublicationType"])
                     val paketSigelFilter: PaketSigelFilter? =
@@ -404,9 +406,19 @@ fun Routing.itemRoutes(
                             call.request.queryParameters["filterNoRightInformation"],
                         )
 
+                    val manualRightFilter: ManualRightFilter? =
+                        QueryParameterParser.parseManualRightFilter(
+                            call.request.queryParameters["filterManualRight"],
+                        )
+
                     val rightIdsFilter: TemplateNameFilter? =
                         QueryParameterParser.parseTemplateNameFilter(
                             call.request.queryParameters["filterRightId"],
+                        )
+
+                    val accessStateOnDateFilter =
+                        QueryParameterParser.parseAccessStateOnDate(
+                            call.request.queryParameters["filterAccessStateOn"],
                         )
 
                     span.setAttribute("searchTerm", searchTerm ?: "")
@@ -457,7 +469,7 @@ fun Routing.itemRoutes(
                         listOfNotNull(
                             licenceUrlFilter,
                             paketSigelFilter,
-                            publicationDateFilter,
+                            publicationYearFilter,
                             publicationTypeFilter,
                             zdbIdFilter,
                             seriesFilter,
@@ -471,6 +483,8 @@ fun Routing.itemRoutes(
                             temporalValidityFilter,
                             validOnFilter,
                             rightIdsFilter,
+                            manualRightFilter,
+                            accessStateOnDateFilter,
                         )
 
                     val queryResult: SearchQueryResult =
@@ -482,6 +496,7 @@ fun Routing.itemRoutes(
                             rightFilters,
                             noRightInformationFilter,
                             emptyList(),
+                            facetsOnly,
                         )
                     span.setStatus(StatusCode.OK)
                     call.respond(

@@ -2,15 +2,16 @@ package de.zbw.business.lori.server
 
 import de.zbw.api.lori.server.route.QueryParameterParser
 import de.zbw.business.lori.server.type.AccessState
-import de.zbw.business.lori.server.type.Bookmark
 import de.zbw.business.lori.server.type.FormalRule
 import de.zbw.business.lori.server.type.PublicationType
 import de.zbw.business.lori.server.type.TemporalValidity
 import de.zbw.persistence.lori.server.DatabaseConnector
-import de.zbw.persistence.lori.server.DatabaseConnector.Companion.COLUMN_METADATA_ZDB_ID_SERIES
 import de.zbw.persistence.lori.server.DatabaseConnector.Companion.COLUMN_RIGHT_END_DATE
 import de.zbw.persistence.lori.server.DatabaseConnector.Companion.COLUMN_RIGHT_START_DATE
 import de.zbw.persistence.lori.server.MetadataDB
+import de.zbw.persistence.lori.server.MetadataDB.Companion.COLUMN_METADATA_IS_PART_OF_SERIES
+import de.zbw.persistence.lori.server.MetadataDB.Companion.COLUMN_METADATA_ZDB_ID_SERIES
+import de.zbw.persistence.lori.server.RightDB
 import de.zbw.persistence.lori.server.SearchDB.Companion.ALIAS_ITEM_RIGHT
 import java.sql.Date
 import java.sql.PreparedStatement
@@ -66,7 +67,7 @@ abstract class SearchFilter(
                     "ser" -> QueryParameterParser.parseSeriesFilter(searchValue)
                     "typ" ->
                         QueryParameterParser.parsePublicationTypeFilter(searchValue)
-                    "jah" -> QueryParameterParser.parsePublicationDateFilter(searchValue)
+                    "jah" -> QueryParameterParser.parsePublicationYearFilter(searchValue)
                     "zgp" -> QueryParameterParser.parseRightValidOnFilter(searchValue)
                     "zgb" -> QueryParameterParser.parseStartDateFilter(searchValue)
                     "zge" -> QueryParameterParser.parseEndDateFilter(searchValue)
@@ -93,8 +94,19 @@ abstract class SearchFilter(
                                 else -> null
                             },
                         )
+                    "man" ->
+                        QueryParameterParser.parseManualRightFilter(
+                            when (searchValue.lowercase()) {
+                                "on" -> "true"
+                                else -> null
+                            },
+                        )
                     "tpl" ->
                         QueryParameterParser.parseTemplateNameFilter(
+                            searchValue,
+                        )
+                    "acd" ->
+                        QueryParameterParser.parseAccessStateOnDate(
                             searchValue,
                         )
                     else -> null
@@ -108,35 +120,6 @@ abstract class SearchFilter(
                 .joinToString(separator = " & ") { filter: SearchFilter ->
                     filter.toString()
                 }.takeIf { it.isNotBlank() } ?: ""
-
-        fun bookmarkToString(bookmark: Bookmark): String {
-            val filters =
-                filtersToString(
-                    listOfNotNull(
-                        bookmark.publicationDateFilter,
-                        bookmark.publicationTypeFilter,
-                        bookmark.paketSigelFilter,
-                        bookmark.zdbIdFilter,
-                        bookmark.accessStateFilter,
-                        bookmark.temporalValidityFilter,
-                        bookmark.formalRuleFilter,
-                        bookmark.startDateFilter,
-                        bookmark.endDateFilter,
-                        bookmark.validOnFilter,
-                        bookmark.noRightInformationFilter,
-                        bookmark.seriesFilter,
-                        bookmark.templateNameFilter,
-                        bookmark.licenceURLFilter,
-                    ),
-                )
-            return if (bookmark.searchTerm.isNullOrBlank()) {
-                filters
-            } else if (filters.isBlank()) {
-                bookmark.searchTerm
-            } else {
-                "(${bookmark.searchTerm}) & ($filters)"
-            }
-        }
     }
 }
 
@@ -274,7 +257,7 @@ class SubcommunityNameFilter(
 class LicenceUrlFilter(
     val licenceUrl: String,
 ) : MetadataSearchFilter(
-        DatabaseConnector.COLUMN_METADATA_LICENCE_URL_FILTER,
+        MetadataDB.COLUMN_METADATA_LICENCE_URL_FILTER,
     ) {
     override fun toWhereClause(): String = "(LOWER($dbColumnName) = ? AND $dbColumnName is not null)"
 
@@ -297,11 +280,11 @@ class LicenceUrlFilter(
     }
 }
 
-class PublicationDateFilter(
+class PublicationYearFilter(
     val fromYear: Int?,
     val toYear: Int?,
 ) : MetadataSearchFilter(
-        DatabaseConnector.COLUMN_METADATA_PUBLICATION_DATE,
+        MetadataDB.COLUMN_METADATA_PUBLICATION_YEAR,
     ) {
     override fun toWhereClause(): String =
         if (fromYear == null && toYear == null) {
@@ -320,51 +303,39 @@ class PublicationDateFilter(
     ): Int =
         if (fromYear == null && toYear == null) {
             counter
-        } else if (fromYear == null) {
-            val toDate = LocalDate.of(toYear!!, 12, 31)
-            preparedStatement.setDate(counter, Date.valueOf(toDate))
+        } else if (fromYear == null && toYear != null) {
+            preparedStatement.setInt(counter, toYear)
             counter + 1
-        } else if (toYear == null) {
-            val fromDate = LocalDate.of(fromYear, 1, 1)
-            preparedStatement.setDate(counter, Date.valueOf(fromDate))
+        } else if (toYear == null && fromYear != null) {
+            preparedStatement.setInt(counter, fromYear)
             counter + 1
         } else {
-            val fromDate = LocalDate.of(fromYear, 1, 1)
-            val toDate = LocalDate.of(toYear, 12, 31)
-            preparedStatement.setDate(counter, Date.valueOf(fromDate))
-            preparedStatement.setDate(counter + 1, Date.valueOf(toDate))
+            preparedStatement.setInt(counter, fromYear!!)
+            preparedStatement.setInt(counter + 1, toYear!!)
             counter + 2
         }
 
     override fun toString(): String {
         val fromYearString =
-            if (fromYear == null) {
-                ""
-            } else {
-                fromYear.toString()
-            }
+            fromYear?.toString() ?: ""
         val toYearString =
-            if (toYear == null) {
-                ""
-            } else {
-                toYear.toString()
-            }
+            toYear?.toString() ?: ""
         return "${getFilterType().keyAlias}:$fromYearString-$toYearString"
     }
 
     override fun toSQLString(): String = "$fromYear-$toYear"
 
-    override fun getFilterType(): FilterType = FilterType.PUBLICATION_DATE
+    override fun getFilterType(): FilterType = FilterType.PUBLICATION_YEAR
 
     companion object {
-        fun fromString(s: String?): PublicationDateFilter? = QueryParameterParser.parsePublicationDateFilter(s)
+        fun fromString(s: String?): PublicationYearFilter? = QueryParameterParser.parsePublicationYearFilter(s)
     }
 }
 
 class PublicationTypeFilter(
     val publicationTypes: List<PublicationType>,
 ) : MetadataSearchFilter(
-        DatabaseConnector.COLUMN_METADATA_PUBLICATION_TYPE,
+        MetadataDB.COLUMN_METADATA_PUBLICATION_TYPE,
     ) {
     override fun toWhereClause(): String =
         publicationTypes.joinToString(prefix = "(", postfix = ")", separator = " OR ") {
@@ -396,7 +367,7 @@ class PublicationTypeFilter(
 class PaketSigelFilter(
     val paketSigels: List<String>,
 ) : MetadataSearchFilter(
-        DatabaseConnector.COLUMN_METADATA_PAKET_SIGEL,
+        MetadataDB.COLUMN_METADATA_PAKET_SIGEL,
     ) {
     override fun toWhereClause(): String =
         paketSigels.joinToString(prefix = "(", postfix = ")", separator = " OR ") {
@@ -428,7 +399,7 @@ class PaketSigelFilter(
 class ZDBIdFilter(
     val zdbIds: List<String>,
 ) : MetadataSearchFilter(
-        DatabaseConnector.COLUMN_METADATA_ZDB_ID_JOURNAL,
+        MetadataDB.COLUMN_METADATA_ZDB_ID_JOURNAL,
     ) {
     override fun toWhereClause(): String =
         zdbIds.joinToString(prefix = "(", postfix = ")", separator = " OR ") {
@@ -462,7 +433,7 @@ class ZDBIdFilter(
 class SeriesFilter(
     val seriesNames: List<String>,
 ) : MetadataSearchFilter(
-        DatabaseConnector.COLUMN_METADATA_IS_PART_OF_SERIES,
+        COLUMN_METADATA_IS_PART_OF_SERIES,
     ) {
     override fun toWhereClause(): String =
         seriesNames.joinToString(prefix = "(", postfix = ")", separator = " OR ") {
@@ -497,6 +468,8 @@ class SeriesFilter(
 abstract class RightSearchFilter(
     dbColumnName: String,
 ) : SearchFilter(dbColumnName) {
+    override fun toString(): String = "${getFilterType().keyAlias}:\"${toSQLString()}\""
+
     companion object {
         const val WHERE_REQUIRE_RIGHT_ID = "${ALIAS_ITEM_RIGHT}.${DatabaseConnector.COLUMN_RIGHT_ID} IS NOT NULL"
     }
@@ -531,6 +504,54 @@ class AccessStateFilter(
 
     companion object {
         fun fromString(s: String?): AccessStateFilter? = QueryParameterParser.parseAccessStateFilter(s)
+    }
+}
+
+class AccessStateOnDateFilter(
+    val date: LocalDate,
+    val accessState: AccessState?,
+) : RightSearchFilter(DatabaseConnector.COLUMN_RIGHT_ACCESS_STATE) {
+    override fun toWhereClause(): String =
+        if (accessState != null) {
+            "((($COLUMN_RIGHT_START_DATE <= ? AND $COLUMN_RIGHT_END_DATE >= ? AND" +
+                " $COLUMN_RIGHT_START_DATE IS NOT NULL AND" +
+                " $COLUMN_RIGHT_END_DATE IS NOT NULL AND $WHERE_REQUIRE_RIGHT_ID) OR" +
+                " ($COLUMN_RIGHT_START_DATE <= ? AND $COLUMN_RIGHT_END_DATE IS NULL AND" +
+                " $COLUMN_RIGHT_START_DATE IS NOT NULL AND $WHERE_REQUIRE_RIGHT_ID))" +
+                " AND ($dbColumnName = ? AND $dbColumnName is not null))"
+        } else {
+            "(($COLUMN_RIGHT_START_DATE <= ? AND $COLUMN_RIGHT_END_DATE >= ? AND" +
+                " $COLUMN_RIGHT_START_DATE IS NOT NULL AND" +
+                " $COLUMN_RIGHT_END_DATE IS NOT NULL AND $WHERE_REQUIRE_RIGHT_ID) OR" +
+                " ($COLUMN_RIGHT_START_DATE <= ? AND $COLUMN_RIGHT_END_DATE IS NULL AND" +
+                " $COLUMN_RIGHT_START_DATE IS NOT NULL AND $WHERE_REQUIRE_RIGHT_ID))"
+        }
+
+    override fun setSQLParameter(
+        counter: Int,
+        preparedStatement: PreparedStatement,
+    ): Int {
+        var localCounter = counter
+        preparedStatement.setDate(localCounter++, Date.valueOf(date))
+        preparedStatement.setDate(localCounter++, Date.valueOf(date))
+        preparedStatement.setDate(localCounter++, Date.valueOf(date))
+        if (accessState != null) {
+            preparedStatement.setString(localCounter++, accessState.toString())
+        }
+        return localCounter
+    }
+
+    override fun toSQLString(): String =
+        if (accessState != null) {
+            "$accessState+$date"
+        } else {
+            "$date"
+        }
+
+    override fun getFilterType(): FilterType = FilterType.ACCESS_ON_DATE
+
+    companion object {
+        fun fromString(s: String?) = QueryParameterParser.parseAccessStateOnDate(s)
     }
 }
 
@@ -603,8 +624,6 @@ class RightValidOnFilter(
 
     override fun toSQLString(): String = date.toString()
 
-    override fun toString(): String = "${getFilterType().keyAlias}:\"${toSQLString()}\""
-
     override fun getFilterType(): FilterType = FilterType.RIGHT_VALID_ON
 
     companion object {
@@ -626,8 +645,6 @@ class StartDateFilter(
     }
 
     override fun toSQLString(): String = date.toString()
-
-    override fun toString(): String = "${getFilterType().keyAlias}:\"${toSQLString()}\""
 
     override fun getFilterType(): FilterType = FilterType.START_DATE
 
@@ -684,8 +701,6 @@ class TemplateNameFilter(
 
     override fun toSQLString(): String = templateNames.joinToString(separator = ",")
 
-    override fun toString(): String = "${getFilterType().keyAlias}:\"${toSQLString()}\""
-
     companion object {
         fun fromString(s: String?): TemplateNameFilter? = QueryParameterParser.parseTemplateNameFilter(s)
     }
@@ -714,8 +729,6 @@ class FormalRuleFilter(
 
     override fun toSQLString(): String = formalRules.joinToString(separator = ",")
 
-    override fun toString(): String = "${getFilterType().keyAlias}:\"${toSQLString()}\""
-
     override fun getFilterType(): FilterType = FilterType.FORMAL_RULE
 
     companion object {
@@ -742,10 +755,30 @@ class NoRightInformationFilter : RightSearchFilter(DatabaseConnector.COLUMN_RIGH
     }
 }
 
+class ManualRightFilter : RightSearchFilter(RightDB.COLUMN_IS_TEMPLATE) {
+    override fun toWhereClause(): String = "${ALIAS_ITEM_RIGHT}.$dbColumnName = false AND $WHERE_REQUIRE_RIGHT_ID"
+
+    override fun setSQLParameter(
+        counter: Int,
+        preparedStatement: PreparedStatement,
+    ): Int = counter
+
+    override fun toSQLString(): String = "true"
+
+    override fun toString(): String = "${getFilterType().keyAlias}:on"
+
+    override fun getFilterType(): FilterType = FilterType.MANUAL_RIGHTS
+
+    companion object {
+        fun fromString(s: String?): ManualRightFilter? = QueryParameterParser.parseManualRightFilter(s)
+    }
+}
+
 enum class FilterType(
     val keyAlias: String,
 ) {
     ACCESS("acc"),
+    ACCESS_ON_DATE("acd"),
     COLLECTION_HANDLE("hdlcol"),
     COLLECTION_NAME("col"),
     COMMUNITY_HANDLE("hdlcom"),
@@ -754,8 +787,9 @@ enum class FilterType(
     FORMAL_RULE("reg"),
     HANDLE("hdl"),
     LICENCE_URL("lur"),
+    MANUAL_RIGHTS("man"),
     NO_RIGHTS("nor"),
-    PUBLICATION_DATE("jah"),
+    PUBLICATION_YEAR("jah"),
     PUBLICATION_TYPE("typ"),
     PAKET_SIGEL("sig"),
     TEMPLATE_NAME("tpl"),

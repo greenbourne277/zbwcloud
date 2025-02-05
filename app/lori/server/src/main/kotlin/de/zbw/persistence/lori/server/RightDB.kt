@@ -4,7 +4,6 @@ import de.zbw.business.lori.server.type.AccessState
 import de.zbw.business.lori.server.type.BasisAccessState
 import de.zbw.business.lori.server.type.BasisStorage
 import de.zbw.business.lori.server.type.ItemRight
-import de.zbw.persistence.lori.server.DatabaseConnector.Companion.COLUMN_METADATA_HANDLE
 import de.zbw.persistence.lori.server.DatabaseConnector.Companion.COLUMN_RIGHT_ACCESS_STATE
 import de.zbw.persistence.lori.server.DatabaseConnector.Companion.COLUMN_RIGHT_ID
 import de.zbw.persistence.lori.server.DatabaseConnector.Companion.COLUMN_RIGHT_LICENCE_CONTRACT
@@ -18,6 +17,7 @@ import de.zbw.persistence.lori.server.DatabaseConnector.Companion.TABLE_NAME_ITE
 import de.zbw.persistence.lori.server.DatabaseConnector.Companion.TABLE_NAME_ITEM_RIGHT
 import de.zbw.persistence.lori.server.DatabaseConnector.Companion.runInTransaction
 import de.zbw.persistence.lori.server.DatabaseConnector.Companion.setIfNotNull
+import de.zbw.persistence.lori.server.MetadataDB.Companion.COLUMN_METADATA_HANDLE
 import io.opentelemetry.api.trace.Tracer
 import java.sql.Date
 import java.sql.PreparedStatement
@@ -40,7 +40,7 @@ class RightDB(
     private val groupDB: GroupDB,
 ) {
     suspend fun insertRight(right: ItemRight): String =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("insertRight") { connection ->
             val prepStmt =
                 insertRightSetParameters(
                     right,
@@ -63,7 +63,7 @@ class RightDB(
         }
 
     suspend fun upsertRight(right: ItemRight): Int =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("upsertRight") { connection ->
             val prepStmt =
                 upsertRightSetParameters(
                     right,
@@ -236,7 +236,7 @@ class RightDB(
     }
 
     suspend fun deleteRightsByIds(rightIds: List<String>): Int =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("deleteRightsByIds") { connection ->
             val prepStmt =
                 connection.prepareStatement(STATEMENT_DELETE_RIGHTS).apply {
                     this.setArray(1, connection.createArrayOf("text", rightIds.toTypedArray()))
@@ -252,7 +252,7 @@ class RightDB(
 
     suspend fun getRightsByIds(rightsIds: List<String>): List<ItemRight> {
         val rights: List<ItemRight> =
-            connectionPool.useConnection { connection ->
+            connectionPool.useConnection("getRightsByIds") { connection ->
                 val prepStmt =
                     connection.prepareStatement(STATEMENT_GET_RIGHTS).apply {
                         this.setArray(1, connection.createArrayOf("text", rightsIds.toTypedArray()))
@@ -284,7 +284,7 @@ class RightDB(
     }
 
     suspend fun rightContainsId(rightId: String): Boolean =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("rightContainsId") { connection ->
             val prepStmt =
                 connection.prepareStatement(STATEMENT_RIGHT_CONTAINS_ID).apply {
                     this.setString(1, rightId)
@@ -302,7 +302,7 @@ class RightDB(
         }
 
     suspend fun getRightIdsByHandle(handle: String): List<String> =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("getRightIdsByHandle") { connection ->
             val prepStmt =
                 connection.prepareStatement(STATEMENT_GET_RIGHTSIDS_FOR_METADATA).apply {
                     this.setString(1, handle)
@@ -328,7 +328,7 @@ class RightDB(
         limit: Int,
         offset: Int,
     ): List<ItemRight> =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("getTemplateList") { connection ->
             val prepStmt =
                 connection.prepareStatement(STATEMENT_GET_TEMPLATES).apply {
                     this.setInt(1, limit)
@@ -356,7 +356,7 @@ class RightDB(
      * Get all RightIds for all templates.
      */
     suspend fun getRightIdsForAllTemplates(): List<String> =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("getRightIdsForAllTemplates") { connection ->
             val prepStmt = connection.prepareStatement(STATEMENT_GET_ALL_IDS_OF_TEMPLATES)
             val span = tracer.spanBuilder("getRightIdsForAllTemplates").startSpan()
             val rs =
@@ -377,7 +377,7 @@ class RightDB(
         }
 
     suspend fun updateAppliedOnByTemplateId(rightId: String): Int =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("updateAppliedOnByTemplateId") { connection ->
             val now = Instant.now()
             val prepStmt =
                 connection.prepareStatement(STATEMENT_UPDATE_TEMPLATE_APPLIED_ON).apply {
@@ -395,7 +395,7 @@ class RightDB(
 
     suspend fun getRightsByTemplateNames(templateNames: List<String>): List<ItemRight> {
         val rights =
-            connectionPool.useConnection { connection ->
+            connectionPool.useConnection("getRightsByTemplateNames") { connection ->
                 if (templateNames.isEmpty()) {
                     emptyList<ItemRight>()
                 }
@@ -435,7 +435,7 @@ class RightDB(
      */
     suspend fun getExceptionsByRightId(rightId: String): List<ItemRight> {
         val rights =
-            connectionPool.useConnection { connection ->
+            connectionPool.useConnection("getExceptionsByRightId") { connection ->
                 val prepStmt =
                     connection.prepareStatement(STATEMENT_GET_EXCEPTIONS_BY_RIGHT_ID).apply {
                         this.setString(1, rightId)
@@ -470,7 +470,7 @@ class RightDB(
      * Checks if a given RightId is an exception.
      */
     suspend fun isException(rightId: String): Boolean =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("isException") { connection ->
             val prepStmt =
                 connection.prepareStatement(STATEMENT_IS_EXCEPTION).apply {
                     this.setString(1, rightId)
@@ -495,7 +495,7 @@ class RightDB(
         rightIdTemplate: String,
         rightIdExceptions: List<String>,
     ): Int =
-        connectionPool.useConnection { connection ->
+        connectionPool.useConnection("addExceptionToTemplate") { connection ->
             val prepStmt =
                 connection.prepareStatement(STATEMENT_UPDATE_TEMPLATE_EXCEPTION_FROM).apply {
                     this.setString(1, rightIdTemplate)
@@ -511,7 +511,7 @@ class RightDB(
         }
 
     companion object {
-        private const val COLUMN_IS_TEMPLATE = "is_template"
+        const val COLUMN_IS_TEMPLATE = "is_template"
         private const val COLUMN_EXCEPTION_FROM = "exception_from"
 
         const val STATEMENT_GET_ALL_IDS_OF_TEMPLATES =

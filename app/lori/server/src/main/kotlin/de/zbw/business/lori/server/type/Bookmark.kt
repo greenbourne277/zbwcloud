@@ -1,14 +1,19 @@
 package de.zbw.business.lori.server.type
 
 import de.zbw.business.lori.server.AccessStateFilter
+import de.zbw.business.lori.server.AccessStateOnDateFilter
 import de.zbw.business.lori.server.EndDateFilter
 import de.zbw.business.lori.server.FormalRuleFilter
 import de.zbw.business.lori.server.LicenceUrlFilter
+import de.zbw.business.lori.server.ManualRightFilter
+import de.zbw.business.lori.server.MetadataSearchFilter
 import de.zbw.business.lori.server.NoRightInformationFilter
 import de.zbw.business.lori.server.PaketSigelFilter
-import de.zbw.business.lori.server.PublicationDateFilter
 import de.zbw.business.lori.server.PublicationTypeFilter
+import de.zbw.business.lori.server.PublicationYearFilter
+import de.zbw.business.lori.server.RightSearchFilter
 import de.zbw.business.lori.server.RightValidOnFilter
+import de.zbw.business.lori.server.SearchFilter.Companion.filtersToString
 import de.zbw.business.lori.server.SeriesFilter
 import de.zbw.business.lori.server.StartDateFilter
 import de.zbw.business.lori.server.TemplateNameFilter
@@ -31,7 +36,7 @@ data class Bookmark(
     val lastUpdatedBy: String? = null,
     val lastUpdatedOn: OffsetDateTime? = null,
     val searchTerm: String? = null,
-    val publicationDateFilter: PublicationDateFilter? = null,
+    val publicationYearFilter: PublicationYearFilter? = null,
     val publicationTypeFilter: PublicationTypeFilter? = null,
     val paketSigelFilter: PaketSigelFilter? = null,
     val zdbIdFilter: ZDBIdFilter? = null,
@@ -45,4 +50,55 @@ data class Bookmark(
     val seriesFilter: SeriesFilter? = null,
     val templateNameFilter: TemplateNameFilter? = null,
     val licenceURLFilter: LicenceUrlFilter? = null,
-)
+    val manualRightFilter: ManualRightFilter? = null,
+    val accessStateOnFilter: AccessStateOnDateFilter? = null,
+    private var queryString: String? = null,
+) {
+    fun getAllMetadataFilter(): List<MetadataSearchFilter> =
+        listOfNotNull(
+            licenceURLFilter,
+            paketSigelFilter,
+            publicationYearFilter,
+            publicationTypeFilter,
+            seriesFilter,
+            zdbIdFilter,
+        )
+
+    fun getAllRightFilter(): List<RightSearchFilter> =
+        listOfNotNull(
+            accessStateFilter,
+            endDateFilter,
+            formalRuleFilter,
+            templateNameFilter,
+            temporalValidityFilter,
+            startDateFilter,
+            validOnFilter,
+            manualRightFilter,
+            accessStateOnFilter,
+        )
+
+    fun initializeQueryString() {
+        queryString = computeQueryString()
+    }
+
+    fun getQueryString() = queryString
+
+    fun computeQueryString(): String {
+        return if (queryString == null) {
+            val filters =
+                filtersToString(
+                    getAllMetadataFilter() + getAllRightFilter() +
+                        listOfNotNull(noRightInformationFilter),
+                )
+            return if (searchTerm.isNullOrBlank()) {
+                filters
+            } else if (filters.isBlank()) {
+                searchTerm
+            } else {
+                "($searchTerm) & ($filters)"
+            }
+        } else {
+            queryString!!
+        }
+    }
+}

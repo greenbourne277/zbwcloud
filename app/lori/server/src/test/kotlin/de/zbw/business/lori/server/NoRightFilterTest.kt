@@ -27,7 +27,7 @@ import java.time.Instant
 import java.time.LocalDate
 
 /**
- * Testing NoRightFilter which  Return only items that DON'T have any
+ * Testing [NoRightFilter] which returns only items that DON'T have any
  * Right Information attached.
  *
  * Created on 03-02-2023.

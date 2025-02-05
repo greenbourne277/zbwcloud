@@ -27,7 +27,7 @@ export default defineComponent({
     const groupLoadErrorMsg = ref("");
     const getGroupList = () => {
       api
-        .getGroupList(0, 100, false)
+        .getGroupList(0, 100 )
         .then((r: Array<GroupRest>) => {
           groupItems.value = r;
         })
@@ -155,7 +155,7 @@ export default defineComponent({
         multi-line
         location="top"
         timer="true"
-        timeout="10000"
+        timeout="5000"
         v-model="successMsgIsActive"
         color="success"
     >
@@ -166,7 +166,7 @@ export default defineComponent({
         multi-line
         location="top"
         timer="true"
-        timeout="10000"
+        timeout="5000"
         v-model="groupLoadError"
         color="error"
     >
@@ -187,10 +187,12 @@ export default defineComponent({
       item-value="groupName"
     ></v-data-table>
     <v-dialog
-      max-width="1000px"
       v-model="dialogStore.groupEditActivated"
       :retain-focus="false"
       v-on:close="closeGroupEditDialog"
+      max-width="1500px"
+      max-height="850px"
+      scrollable
     >
       <GroupEdit
         :isNew="isNew"

@@ -37,20 +37,19 @@ export default {
       id: groupId,
     });
   },
-  getGroupById(groupId: number): Promise<GroupRest> {
+  getGroupById(groupId: number, version: number | undefined): Promise<GroupRest> {
     return loriGroupApi.getGroupById({
       id: groupId,
+      version: version,
     });
   },
   getGroupList(
     offset: number,
     limit: number,
-    idOnly: boolean,
   ): Promise<Array<GroupRest>> {
     return loriGroupApi.getGroupList({
       offset: offset,
       limit: limit,
-      idOnly: idOnly,
     });
   },
   updateGroup(g: GroupRest): Promise<void> {
@@ -90,7 +89,8 @@ export default {
     offset: number,
     limit: number,
     pageSize: number,
-    filterPublicationDate: string | undefined,
+    facetsOnly: boolean | undefined,
+    filterPublicationYear: string | undefined,
     filterPublicationType: string | undefined,
     filterAccessState: string | undefined,
     filterTemporalValidity: string | undefined,
@@ -104,13 +104,15 @@ export default {
     filterRightId: string | undefined,
     filterSeries: string | undefined,
     filterLicenceUrl: string | undefined,
+    filterManualRight: string | undefined,
+    filterAccessStateOn: string | undefined,
   ): Promise<ItemInformation> {
     return loriItem.getSearchResult({
       searchTerm: searchTerm,
       offset: offset,
       limit: limit,
       pageSize: pageSize,
-      filterPublicationDate: filterPublicationDate,
+      filterPublicationYear: filterPublicationYear,
       filterPublicationType: filterPublicationType,
       filterAccessState: filterAccessState,
       filterTemporalValidity: filterTemporalValidity,
@@ -123,7 +125,10 @@ export default {
       filterNoRightInformation: filterNoRightInformation,
       filterRightId: filterRightId,
       filterSeries: filterSeries,
-      filterLicenceUrl,
+      filterLicenceUrl: filterLicenceUrl,
+      filterManualRight: filterManualRight,
+      facetsOnly: facetsOnly,
+      filterAccessStateOn: filterAccessStateOn,
     });
   },
 };

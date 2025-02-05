@@ -5,9 +5,12 @@ import { useVuelidate } from "@vuelidate/core";
 import { useDialogsStore } from "@/stores/dialogs";
 import date_utils from "@/utils/date_utils";
 import metadata_utils from "@/utils/metadata_utils";
+import api from "@/api/api";
+import {ItemInformation} from "@/generated-sources/openapi";
+import error from "@/utils/error";
 
 export default defineComponent({
-  emits: ["startEmptySearch", "startSearch"],
+  emits: ["startEmptySearch", "startSearch", "getAccessStatesOnDate"],
   setup(props, { emit }) {
     const searchStore = useSearchStore();
     const temporalEvent = -1;
@@ -64,8 +67,8 @@ export default defineComponent({
     // Reset the search filter
     const canReset = computed(() => {
       return (
-        searchStore.publicationDateFrom != "" ||
-        searchStore.publicationDateTo != "" ||
+        searchStore.publicationYearFrom != "" ||
+        searchStore.publicationYearTo != "" ||
         searchStore.accessStateOpen ||
         searchStore.accessStateRestricted ||
         searchStore.accessStateClosed ||
@@ -90,13 +93,16 @@ export default defineComponent({
         searchStore.licenceUrlIdx.filter((element) => element).length > 0 ||
         searchStore.noRightInformation ||
         searchStore.searchTerm ||
-        searchStore.isLastSearchForTemplates
+        searchStore.isLastSearchForTemplates ||
+        searchStore.manualRight ||
+        searchStore.accessStateOnDateState.dateValueFormatted ||
+        searchStore.accessStateOnDateState.accessState
       );
     });
 
     const resetFilter: () => void = () => {
-      searchStore.publicationDateFrom = "";
-      searchStore.publicationDateTo = "";
+      searchStore.publicationYearFrom = "";
+      searchStore.publicationYearTo = "";
 
       searchStore.accessStateOpen = false;
       searchStore.accessStateRestricted = false;
@@ -132,11 +138,15 @@ export default defineComponent({
       searchStore.seriesIdx = searchStore.seriesIdx.map(() => false);
       searchStore.licenceUrlIdx = searchStore.licenceUrlIdx.map(() => false);
       searchStore.noRightInformation = false;
+      searchStore.manualRight = false;
+      searchStore.accessStateOnDateState.dateValueFormatted = "";
+      searchStore.accessStateOnDateState.accessState = "";
+      searchStore.accessStateOnDateIdx = [] as Array<string>;
       emit("startEmptySearch");
     };
 
     const parseAccessState = (accessState: string, count: number) => {
-      switch (accessState) {
+      switch (accessState.toLowerCase()) {
         case "closed":
           return "Closed " + "(" + count + ")";
         case "open":
@@ -176,15 +186,24 @@ export default defineComponent({
     };
 
     /**
+     * Search for AccessStateOnDate
+     */
+    const errorFetchBackendData = ref("");
+    const emitGetAccessStateOnDateSearch = () => {
+      emit("getAccessStatesOnDate");
+    }
+
+    /**
      * Menu interactions.
      */
     const isStartEndDateMenuOpen = ref(false);
-
+    const isAccessStateOnDateMenuOpen = ref(false);
+    const accessStateDate = ref(undefined as Date | undefined);
     const startDateOrEndDate = ref(undefined as Date | undefined);
 
     const startDateOrEndDateEntered = () => {
       if (startDateOrEndDate.value != undefined) {
-        searchStore.temporalEventState.startDateOrEndDateFormattedValue =  date_utils.dateToIso8601(startDateOrEndDate.value);
+        searchStore.temporalEventState.startDateOrEndDateFormattedValue = date_utils.dateToIso8601(startDateOrEndDate.value);
       } else {
         searchStore.temporalEventState.startDateOrEndDateFormattedValue = "";
       }
@@ -193,6 +212,24 @@ export default defineComponent({
     watch(startDateOrEndDate, () => {
       isStartEndDateMenuOpen.value = false;
     });
+
+    const accessStateDateEntered = () => {
+      if (accessStateDate.value != undefined) {
+        searchStore.accessStateOnDateState.dateValueFormatted = date_utils.dateToIso8601(accessStateDate.value);
+      } else {
+        searchStore.accessStateOnDateState.dateValueFormatted = "";
+      }
+    };
+
+    watch(accessStateDate, () => {
+      isAccessStateOnDateMenuOpen.value = false;
+      emitGetAccessStateOnDateSearch();
+      emitSearchStartAccessStateOn();
+    });
+
+    const singleSelectionAccessStateOnDate = () => {
+      searchStore.accessStateOnDateIdx = [] as Array<string>;
+    };
 
     const isValidOnMenuOpen = ref(false);
     const temporalValidOn = ref(undefined as Date | undefined);
@@ -214,17 +251,28 @@ export default defineComponent({
       emit("startSearch");
     };
 
-    const emitSearchStartPublicationDate = (date: string) => {
+    const emitSearchStartPublicationYear = (date: string) => {
       if (date.length == 4 || date.length == 0){
         emit("startSearch");
       }
     };
 
+    const emitSearchStartAccessStateOn = () => {
+      if (searchStore.accessStateOnDateState.dateValueFormatted != undefined &&
+        searchStore.accessStateOnDateState.dateValueFormatted != "" &&
+        searchStore.accessStateOnDateIdx.filter((e) => e != undefined).length == 1){
+        emit("startSearch");
+      }
+    };
+
     return {
+      accessStateDate,
       canReset,
+      errorFetchBackendData,
       errorTempEventStartEnd,
       errorTempEventInput,
       temporalValidOn,
+      isAccessStateOnDateMenuOpen,
       isStartEndDateMenuOpen,
       isValidOnMenuOpen,
       startDateOrEndDate,
@@ -233,15 +281,19 @@ export default defineComponent({
       tempValidOnMenu,
       searchStore,
       v$,
+      accessStateDateEntered,
       activateBookmarkSaveDialog,
+      emitGetAccessStateOnDateSearch,
       emitSearchStart,
-      emitSearchStartPublicationDate,
+      emitSearchStartAccessStateOn,
+      emitSearchStartPublicationYear,
       parseAccessState,
       parsePublicationType,
       ppLicenceUrl,
       ppPaketSigel,
       ppZDBId,
       resetFilter,
+      singleSelectionAccessStateOnDate,
       startDateOrEndDateEntered,
       temporalValidOnEntered,
     };
@@ -299,15 +351,15 @@ export default defineComponent({
                   <v-col cols="6">
                     <v-text-field
                       label="Von"
-                      v-model="searchStore.publicationDateFrom"
-                      @update:modelValue="emitSearchStartPublicationDate(searchStore.publicationDateFrom)"
+                      v-model="searchStore.publicationYearFrom"
+                      @update:modelValue="emitSearchStartPublicationYear(searchStore.publicationYearFrom)"
                     ></v-text-field>
                   </v-col>
                   <v-col cols="6">
                     <v-text-field
                       label="Bis"
-                      v-model="searchStore.publicationDateTo"
-                      @update:modelValue="emitSearchStartPublicationDate(searchStore.publicationDateTo)"
+                      v-model="searchStore.publicationYearTo"
+                      @update:modelValue="emitSearchStartPublicationYear(searchStore.publicationYearTo)"
                     ></v-text-field>
                   </v-col>
                 </v-row>
@@ -496,6 +548,65 @@ export default defineComponent({
             <v-list-group sub-group>
               <template v-slot:activator="{ props }">
                 <v-list-item
+                    v-bind="props"
+                    title="Access-Status am"
+                >
+                </v-list-item>
+              </template>
+              <v-menu
+                  :location="'bottom'"
+                  :close-on-content-click="false"
+                  v-model="isAccessStateOnDateMenuOpen"
+              >
+                <template v-slot:activator="{ props }">
+                  <v-text-field
+                      v-model="searchStore.accessStateOnDateState.dateValueFormatted"
+                      prepend-icon="mdi-calendar"
+                      v-bind="props"
+                      readonly
+                      required
+                      clearable
+                      @update:modelValue="emitGetAccessStateOnDateSearch"
+                      @click:clear="emitSearchStart"
+                      :error-messages="errorFetchBackendData"
+                  ></v-text-field>
+                </template>
+                <v-date-picker
+                    v-model="accessStateDate"
+                    color="primary"
+                    @update:modelValue="accessStateDateEntered"
+                ><template v-slot:header></template>
+                </v-date-picker>
+              </v-menu>
+              <h6></h6>
+              <v-list>
+                <v-list-item
+                    v-for="(item, i) in searchStore.accessStateOnDateReceived"
+                    :key="i"
+                    :value="item"
+                    color="primary"
+                    rounded="shaped"
+                >
+                  <v-checkbox
+                      :label="parseAccessState(item.accessState, item.count)"
+                      hide-details
+                      class="pl-9 ml-4"
+                      v-model="searchStore.accessStateOnDateIdx"
+                      :value="item.accessState"
+                      @click="singleSelectionAccessStateOnDate"
+                      @update:modelValue="emitSearchStartAccessStateOn"
+                  ></v-checkbox>
+                  <v-divider
+                      :thickness="1"
+                      class="border-opacity-100"
+                      color="grey-lighten-1"
+                  ></v-divider>
+                </v-list-item>
+              </v-list>
+            </v-list-group>
+            <v-list-group sub-group>
+              <template v-slot:activator="{ props }">
+                <v-list-item
                   v-bind="props"
                   title="Zeitliche Gültigkeit am"
                 ></v-list-item>
@@ -556,19 +667,6 @@ export default defineComponent({
                   @update:modelValue="startDateOrEndDateEntered"
                   ><template v-slot:header></template>
                   <v-spacer></v-spacer>
-                  <v-btn
-                    text="Cancel"
-                    color="primary"
-                    @click="tempEventMenu = false"
-                  >
-                  </v-btn>
-                  <v-btn
-                    text="OK"
-                    color="primary"
-                    @click="
-                      $refs.tempEventMenu.save(startDateOrEndDate)
-                    "
-                  ></v-btn>
                 </v-date-picker>
               </v-menu>
               <v-item-group v-model="temporalEvent">
@@ -697,6 +795,18 @@ export default defineComponent({
                 class="pl-9 ml-4"
                 v-model="searchStore.noRightInformation"
                 @update:modelValue="emitSearchStart"
+              ></v-checkbox>
+              <v-divider
+                  :thickness="1"
+                  class="border-opacity-100"
+                  color="grey-lighten-1"
+              ></v-divider>
+              <v-checkbox
+                  label="Manuell erstellte Rechteeinträge"
+                  hide-details
+                  class="pl-9 ml-4"
+                  v-model="searchStore.manualRight"
+                  @update:modelValue="emitSearchStart"
               ></v-checkbox>
             </v-list-group>
             <v-list-group sub-group>

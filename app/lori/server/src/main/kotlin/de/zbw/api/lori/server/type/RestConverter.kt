@@ -2,10 +2,12 @@ package de.zbw.api.lori.server.type
 
 import de.zbw.api.lori.server.route.QueryParameterParser
 import de.zbw.api.lori.server.utils.RestConverterUtil.prepareLicenceUrlFilter
+import de.zbw.business.lori.server.AccessStateOnDateFilter
 import de.zbw.business.lori.server.EndDateFilter
 import de.zbw.business.lori.server.LicenceUrlFilter
+import de.zbw.business.lori.server.ManualRightFilter
 import de.zbw.business.lori.server.NoRightInformationFilter
-import de.zbw.business.lori.server.PublicationDateFilter
+import de.zbw.business.lori.server.PublicationYearFilter
 import de.zbw.business.lori.server.RightValidOnFilter
 import de.zbw.business.lori.server.StartDateFilter
 import de.zbw.business.lori.server.type.AccessState
@@ -17,12 +19,14 @@ import de.zbw.business.lori.server.type.ConflictType
 import de.zbw.business.lori.server.type.ErrorQueryResult
 import de.zbw.business.lori.server.type.Group
 import de.zbw.business.lori.server.type.GroupEntry
+import de.zbw.business.lori.server.type.GroupVersion
 import de.zbw.business.lori.server.type.Item
 import de.zbw.business.lori.server.type.ItemMetadata
 import de.zbw.business.lori.server.type.ItemRight
 import de.zbw.business.lori.server.type.PublicationType
 import de.zbw.business.lori.server.type.RightError
 import de.zbw.business.lori.server.type.SearchQueryResult
+import de.zbw.business.lori.server.type.TemplateApplicationResult
 import de.zbw.business.lori.server.type.UserPermission
 import de.zbw.lori.model.AccessStateRest
 import de.zbw.lori.model.AccessStateWithCountRest
@@ -30,13 +34,15 @@ import de.zbw.lori.model.BookmarkRawRest
 import de.zbw.lori.model.BookmarkRest
 import de.zbw.lori.model.BookmarkTemplateRest
 import de.zbw.lori.model.ConflictTypeRest
-import de.zbw.lori.model.FilterPublicationDateRest
+import de.zbw.lori.model.FilterAccessStateOnRest
+import de.zbw.lori.model.FilterPublicationYearRest
 import de.zbw.lori.model.GroupRest
 import de.zbw.lori.model.IsPartOfSeriesCountRest
 import de.zbw.lori.model.ItemInformation
 import de.zbw.lori.model.ItemRest
 import de.zbw.lori.model.LicenceUrlCountRest
 import de.zbw.lori.model.MetadataRest
+import de.zbw.lori.model.OldGroupVersionRest
 import de.zbw.lori.model.OrganisationToIp
 import de.zbw.lori.model.PaketSigelWithCountRest
 import de.zbw.lori.model.PublicationTypeRest
@@ -44,6 +50,7 @@ import de.zbw.lori.model.PublicationTypeWithCountRest
 import de.zbw.lori.model.RightErrorInformationRest
 import de.zbw.lori.model.RightErrorRest
 import de.zbw.lori.model.RightRest
+import de.zbw.lori.model.TemplateApplicationRest
 import de.zbw.lori.model.TemplateNameWithCountRest
 import de.zbw.lori.model.UserPermissionRest
 import de.zbw.lori.model.UserSessionRest
@@ -92,6 +99,20 @@ fun Group.toRest() =
                     organisation = it.organisationName,
                 )
             },
+        createdBy = createdBy,
+        createdOn = createdOn,
+        lastUpdatedBy = lastUpdatedBy,
+        lastUpdatedOn = lastUpdatedOn,
+        version = version,
+        oldVersions = oldVersions?.map { it.toRest() },
+    )
+
+fun GroupVersion.toRest() =
+    OldGroupVersionRest(
+        createdOn = createdOn,
+        createdBy = createdBy,
+        version = version,
+        description = description,
     )
 
 /**
@@ -111,6 +132,13 @@ fun GroupRest.toBusiness() =
                 )
             } ?: emptyList(),
         title = title,
+        createdBy = createdBy,
+        createdOn = createdOn,
+        lastUpdatedBy = lastUpdatedBy,
+        lastUpdatedOn = lastUpdatedOn,
+        version = version,
+        // History can't be changed through APIs ;)
+        oldVersions = emptyList(),
     )
 
 fun MetadataRest.toBusiness() =
@@ -123,6 +151,7 @@ fun MetadataRest.toBusiness() =
         communityName = communityName,
         createdBy = createdBy,
         createdOn = createdOn,
+        deleted = deleted,
         doi = doi,
         handle = handle,
         isbn = isbn,
@@ -135,7 +164,7 @@ fun MetadataRest.toBusiness() =
         paketSigel = paketSigel,
         ppn = ppn,
         publicationType = publicationType.toBusiness(),
-        publicationDate = publicationDate,
+        publicationYear = publicationYear,
         rightsK10plus = rightsK10plus,
         subCommunityHandle = subCommunityHandle,
         subCommunityName = subCommunityName,
@@ -157,6 +186,7 @@ fun ItemMetadata.toRest(): MetadataRest =
         communityName = communityName,
         createdBy = createdBy,
         createdOn = createdOn,
+        deleted = deleted,
         doi = doi,
         handle = handle,
         isbn = isbn,
@@ -168,7 +198,7 @@ fun ItemMetadata.toRest(): MetadataRest =
         paketSigel = paketSigel,
         ppn = ppn,
         publicationType = publicationType.toRest(),
-        publicationDate = publicationDate,
+        publicationYear = publicationYear,
         rightsK10plus = rightsK10plus,
         storageDate = storageDate,
         subCommunityHandle = subCommunityHandle,
@@ -191,7 +221,7 @@ fun RightRest.toBusiness(): ItemRight =
         createdOn = createdOn,
         endDate = endDate,
         exceptionFrom = exceptionFrom,
-        groups = null,
+        groups = groups?.map { it.toBusiness() },
         groupIds = groupIds,
         isTemplate = isTemplate,
         lastAppliedOn = lastAppliedOn,
@@ -346,7 +376,7 @@ fun DAItem.toBusiness(
             logger.error("Unknown PublicationType found for ${this.id}")
             throw iae
         }
-    val publicationDate = RestConverter.extractMetadata("dc.date.issued", metadata)
+    val publicationYear: String? = RestConverter.extractMetadata("dc.date.issued", metadata)
     val title = RestConverter.extractMetadata("dc.title", metadata)
 
     return if (
@@ -392,6 +422,7 @@ fun DAItem.toBusiness(
             communityName = parentDACommunity?.name,
             createdBy = null,
             createdOn = null,
+            deleted = this.withdrawn?.toBoolean() == true,
             doi = RestConverter.extractMetadata("dc.identifier.pi", metadata),
             handle = RestConverter.parseHandle(handle),
             isbn = RestConverter.extractMetadata("dc.identifier.isbn", metadata),
@@ -404,7 +435,7 @@ fun DAItem.toBusiness(
             paketSigel = RestConverter.extractMetadata("dc.identifier.packageid", metadata),
             ppn = RestConverter.extractMetadata("dc.identifier.ppn", metadata),
             publicationType = publicationType,
-            publicationDate = publicationDate?.let { RestConverter.parseToDate(it) },
+            publicationYear = publicationYear?.let { RestConverter.parseToDate(it) }?.year,
             rightsK10plus = RestConverter.extractMetadata("dc.rights", metadata),
             subCommunityHandle =
                 subDACommunity?.handle?.let {
@@ -458,7 +489,7 @@ fun BookmarkRawRest.toBusiness(): Bookmark =
         bookmarkId = this.bookmarkId,
         description = this.description,
         searchTerm = this.searchTerm,
-        publicationDateFilter = QueryParameterParser.parsePublicationDateFilter(this.filterPublicationDate),
+        publicationYearFilter = QueryParameterParser.parsePublicationYearFilter(this.filterPublicationYear),
         publicationTypeFilter = QueryParameterParser.parsePublicationTypeFilter(this.filterPublicationType),
         paketSigelFilter = QueryParameterParser.parsePaketSigelFilter(this.filterPaketSigel),
         zdbIdFilter = QueryParameterParser.parseZDBIdFilter(this.filterZDBId),
@@ -470,7 +501,9 @@ fun BookmarkRawRest.toBusiness(): Bookmark =
         validOnFilter = QueryParameterParser.parseRightValidOnFilter(this.filterValidOn),
         noRightInformationFilter = QueryParameterParser.parseNoRightInformationFilter(this.filterNoRightInformation),
         seriesFilter = QueryParameterParser.parseSeriesFilter(this.filterSeries),
+        manualRightFilter = QueryParameterParser.parseManualRightFilter(this.filterManualRight),
         licenceURLFilter = QueryParameterParser.parseLicenceUrlFilter(this.filterLicenceUrl),
+        accessStateOnFilter = QueryParameterParser.parseAccessStateOnDate(this.filterAccessOnDate),
         lastUpdatedBy = lastUpdatedBy,
         lastUpdatedOn = lastUpdatedOn,
         createdBy = createdBy,
@@ -483,10 +516,10 @@ fun BookmarkRest.toBusiness(): Bookmark =
         bookmarkId = this.bookmarkId,
         description = this.description,
         searchTerm = this.searchTerm,
-        publicationDateFilter =
-            PublicationDateFilter(
-                fromYear = this.filterPublicationDate?.fromYear,
-                toYear = this.filterPublicationDate?.toYear,
+        publicationYearFilter =
+            PublicationYearFilter(
+                fromYear = this.filterPublicationYear?.fromYear,
+                toYear = this.filterPublicationYear?.toYear,
             ),
         publicationTypeFilter =
             QueryParameterParser.parsePublicationTypeFilter(
@@ -508,6 +541,14 @@ fun BookmarkRest.toBusiness(): Bookmark =
         endDateFilter = this.filterEndDate?.let { EndDateFilter(it) },
         validOnFilter = this.filterValidOn?.let { RightValidOnFilter(it) },
         noRightInformationFilter = this.filterNoRightInformation?.takeIf { it }?.let { NoRightInformationFilter() },
+        manualRightFilter = this.filterManualRight?.takeIf { it }?.let { ManualRightFilter() },
+        accessStateOnFilter =
+            this.filterAccessOnDate?.let {
+                AccessStateOnDateFilter(
+                    date = it.date,
+                    accessState = AccessState.valueOf(it.accessState),
+                )
+            },
         licenceURLFilter = this.filterLicenceUrl?.let { LicenceUrlFilter(it) },
         lastUpdatedBy = lastUpdatedBy,
         lastUpdatedOn = lastUpdatedOn,
@@ -521,10 +562,10 @@ fun Bookmark.toRest(filtersAsQuery: String): BookmarkRest =
         bookmarkId = this.bookmarkId,
         description = this.description,
         searchTerm = this.searchTerm,
-        filterPublicationDate =
-            FilterPublicationDateRest(
-                fromYear = this.publicationDateFilter?.fromYear,
-                toYear = this.publicationDateFilter?.toYear,
+        filterPublicationYear =
+            FilterPublicationYearRest(
+                fromYear = this.publicationYearFilter?.fromYear,
+                toYear = this.publicationYearFilter?.toYear,
             ),
         filterPublicationType = this.publicationTypeFilter?.publicationTypes?.map { it.toString() },
         filterAccessState = this.accessStateFilter?.accessStates?.map { it.toString() },
@@ -535,7 +576,8 @@ fun Bookmark.toRest(filtersAsQuery: String): BookmarkRest =
         filterValidOn = this.validOnFilter?.date,
         filterPaketSigel = this.paketSigelFilter?.paketSigels,
         filterZDBId = this.zdbIdFilter?.zdbIds,
-        filterNoRightInformation = this.noRightInformationFilter?.let { true } ?: false,
+        filterNoRightInformation = this.noRightInformationFilter?.let { true } == true,
+        filterManualRight = this.manualRightFilter?.let { true } == true,
         createdBy = this.createdBy,
         createdOn = this.createdOn,
         lastUpdatedBy = this.lastUpdatedBy,
@@ -544,6 +586,13 @@ fun Bookmark.toRest(filtersAsQuery: String): BookmarkRest =
         filterTemplateName = this.templateNameFilter?.templateNames,
         filtersAsQuery = filtersAsQuery,
         filterLicenceUrl = this.licenceURLFilter?.licenceUrl,
+        filterAccessOnDate =
+            this.accessStateOnFilter?.let {
+                FilterAccessStateOnRest(
+                    date = it.date,
+                    accessState = it.accessState.toString(),
+                )
+            },
     )
 
 fun BookmarkTemplateRest.toBusiness(): BookmarkTemplate =
@@ -644,6 +693,7 @@ fun ConflictType.toRest(): ConflictTypeRest =
         ConflictType.DATE_OVERLAP -> ConflictTypeRest.date_overlap
         ConflictType.UNSPECIFIED -> ConflictTypeRest.unspecified
         ConflictType.GAP -> ConflictTypeRest.gap
+        ConflictType.DELETION -> ConflictTypeRest.deletion
         ConflictType.NO_RIGHT -> ConflictTypeRest.no_right
     }
 
@@ -651,6 +701,7 @@ fun ConflictType.toProto(): de.zbw.lori.api.ConflictType =
     when (this) {
         ConflictType.DATE_OVERLAP -> de.zbw.lori.api.ConflictType.CONFLICT_TYPE_DATE_OVERLAP
         ConflictType.UNSPECIFIED -> de.zbw.lori.api.ConflictType.CONFLICT_TYPE_UNSPECIFIED
+        ConflictType.DELETION -> de.zbw.lori.api.ConflictType.CONFLICT_TYPE_DELETION
         ConflictType.GAP -> de.zbw.lori.api.ConflictType.CONFLICT_TYPE_GAP
         ConflictType.NO_RIGHT -> de.zbw.lori.api.ConflictType.CONFLICT_TYPE_NO_RIGHT
     }
@@ -665,6 +716,30 @@ fun RightError.toRest(): RightErrorRest =
         conflictingWithRightId = conflictingWithRightId,
         conflictType = conflictType.toRest(),
         errorId = errorId ?: -1,
+    )
+
+fun TemplateApplicationResult.toRest(): TemplateApplicationRest =
+    TemplateApplicationRest(
+        rightId = rightId,
+        templateName = templateName,
+        handles = appliedMetadataHandles,
+        errors = errors.map { it.toRest() },
+        numberOfErrors = numberOfErrors,
+        numberOfAppliedEntries = appliedMetadataHandles.size,
+        testId = testId,
+        exceptionTemplateApplications =
+            exceptionTemplateApplicationResult.map { exc ->
+                TemplateApplicationRest(
+                    rightId = exc.rightId,
+                    handles = exc.appliedMetadataHandles,
+                    templateName = exc.templateName,
+                    errors = exc.errors.map { it.toRest() },
+                    numberOfAppliedEntries = exc.appliedMetadataHandles.size,
+                    testId = exc.testId,
+                    numberOfErrors = exc.numberOfErrors,
+                    exceptionTemplateApplications = emptyList(),
+                )
+            },
     )
 
 /**
@@ -736,7 +811,7 @@ object RestConverter {
                     )
                 }
         } catch (e: Exception) {
-            throw IllegalArgumentException()
+            throw IllegalArgumentException(e)
         }
 
     fun parseHandle(given: String): String = given.replace("^[\\D]*".toRegex(), "")

@@ -1,6 +1,7 @@
 <script lang="ts">
 import { defineComponent, onMounted, Ref, ref } from "vue";
 import error from "@/utils/error";
+import info from "@/utils/info";
 import templateApi from "@/api/templateApi";
 import {
   RightErrorRest,
@@ -113,11 +114,16 @@ export default defineComponent({
         return;
       }
       templateApi
-        .applyTemplates([template.rightId], false, false)
+        .applyTemplates(
+            [template.rightId],
+            false,
+            false,
+            false,
+        )
         .then((r: TemplateApplicationsRest) => {
           const templateApplicationResult: TemplateApplicationRest =
             r.templateApplication[0];
-          const infoMsg = constructApplicationInfoText(
+          const infoMsg = info.constructApplicationInfoText(
             templateApplicationResult,
           );
           successMsgIsActive.value = true;
@@ -153,31 +159,6 @@ export default defineComponent({
             errorMsgIsActive.value = true;
           });
         });
-    };
-
-    const constructApplicationInfoText: (
-      templateApplication: TemplateApplicationRest,
-    ) => string = (templateApplication: TemplateApplicationRest) => {
-      const parent: string =
-        "Template '" +
-        templateApplication.templateName +
-        "' wurde für " +
-        templateApplication.numberOfAppliedEntries +
-        " Einträge angewandt.";
-      let exceptions: string = "";
-      if (templateApplication.exceptionTemplateApplications !== undefined) {
-        exceptions = templateApplication.exceptionTemplateApplications
-          .map(
-            (tA: TemplateApplicationRest) =>
-              "Template (Ausnahme) '" +
-              tA.templateName +
-              "' wurde für " +
-              tA.numberOfAppliedEntries +
-              " Einträge angewandt.",
-          )
-          .join("\n");
-      }
-      return parent + "\n" + exceptions;
     };
 
     const closeApplyErrorMsg = () => {
@@ -288,7 +269,7 @@ export default defineComponent({
           multi-line
           location="top"
           timer="true"
-          timeout="10000"
+          timeout="5000"
           v-model="successMsgIsActive"
           color="success"
       >
@@ -299,7 +280,7 @@ export default defineComponent({
           multi-line
           location="top"
           timer="true"
-          timeout="10000"
+          timeout="5000"
           v-model="errorMsgIsActive"
           color="error"
       >
@@ -384,8 +365,10 @@ export default defineComponent({
       <v-dialog
         v-model="dialogStore.templateEditActivated"
         :retain-focus="false"
-        max-width="1000px"
+        max-width="1500px"
+        max-height="850px"
         v-on:close="closeTemplateEditDialog"
+        scrollable
       >
         <RightsEditDialog
           :index="-1"
@@ -396,7 +379,7 @@ export default defineComponent({
             currentTemplate.exceptionFrom !== undefined &&
             currentTemplate.exceptionFrom != ''
           "
-          :right="currentTemplate"
+          :rightId="currentTemplate.rightId"
           v-on:addTemplateSuccessful="childTemplateAdded"
           v-on:deleteTemplateSuccessful="childTemplateDeleted"
           v-on:editRightClosed="closeTemplateEditDialog"

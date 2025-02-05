@@ -151,7 +151,7 @@ export default defineComponent({
         multi-line
         location="top"
         timer="true"
-        timeout="10000"
+        timeout="5000"
         v-model="successMsgIsActive"
         color="success"
     >
@@ -217,7 +217,7 @@ export default defineComponent({
         :isNewRight="isNew"
         :isNewTemplate="false"
         :handle="handle"
-        :right="currentRight"
+        :rightId="currentRight.rightId"
         v-on:addSuccessful="addRight"
         v-on:editRightClosed="editRightClosed"
       ></RightsEditDialog>

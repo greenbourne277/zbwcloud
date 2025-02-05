@@ -28,6 +28,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import org.apache.logging.log4j.LogManager
+import java.time.Instant
 
 /**
  * Lori GRPC-server.
@@ -50,7 +51,7 @@ class LoriGrpcServer(
         return withContext(span.asContextElement()) {
             try {
                 val errors =
-                    daConnector.backend.checkForRightErrors().map {
+                    daConnector.backend.checkForRightErrors(grpcUser).map {
                         RightError
                             .newBuilder()
                             .setErrorId(it.errorId ?: -1)
@@ -84,10 +85,14 @@ class LoriGrpcServer(
                 .startSpan()
         return withContext(span.asContextElement()) {
             try {
+                val startTime = Instant.now()
                 val token = daConnector.login()
                 val communityIds = daConnector.getAllCommunityIds(token)
                 LOG.info("Community Ids to import: ${communityIds.sortedDescending().reversed()}")
                 val imports = runImports(communityIds, token)
+                val deleted = backend.updateMetadataAsDeleted(startTime)
+                LOG.info("Number of deleted Items found: " + deleted)
+
                 FullImportResponse
                     .newBuilder()
                     .setItemsImported(imports)
@@ -115,9 +120,18 @@ class LoriGrpcServer(
             try {
                 val backendResponse: List<TemplateApplicationResult> =
                     if (request.all) {
-                        daConnector.backend.applyAllTemplates(request.skipDraft)
+                        daConnector.backend.applyAllTemplates(
+                            request.skipDraft,
+                            request.dryRun,
+                            grpcUser,
+                        )
                     } else {
-                        daConnector.backend.applyTemplates(request.rightIdsList, request.skipDraft)
+                        daConnector.backend.applyTemplates(
+                            request.rightIdsList,
+                            request.skipDraft,
+                            request.dryRun,
+                            grpcUser,
+                        )
                     }
                 val templateApplications: List<TemplateApplication> =
                     backendResponse.map { e: TemplateApplicationResult ->
@@ -211,5 +225,6 @@ class LoriGrpcServer(
 
     companion object {
         private val LOG = LogManager.getLogger(LoriGrpcServer::class.java)
+        private val grpcUser = "GRPC_INTERFACE"
     }
 }

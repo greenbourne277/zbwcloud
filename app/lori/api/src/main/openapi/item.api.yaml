@@ -229,7 +229,7 @@ item-right:
           type: string
     responses:
       200:
-        description: Deletion was successfull
+        description: Deletion was successful
         content: { }
       400:
         description: Bad request
@@ -322,7 +322,13 @@ item-search:
           minimum: 1
           maximum: 100
           default: 25
-      - name: filterPublicationDate
+      - name: facetsOnly
+        in: query
+        description: Return only facets
+        required: false
+        schema:
+          type: boolean
+      - name: filterPublicationYear
         in: query
         schema:
           type: string
@@ -366,6 +372,10 @@ item-search:
         in: query
         schema:
           type: string
+      - name: filterManualRight
+        in: query
+        schema:
+          type: string
       - name: filterRightId
         in: query
         schema:
@@ -378,6 +388,11 @@ item-search:
         in: query
         schema:
           type: string
+      - name: filterAccessStateOn
+        in: query
+        schema:
+          type: string
+
 
     responses:
       200:

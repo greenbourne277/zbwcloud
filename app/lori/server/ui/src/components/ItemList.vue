@@ -96,7 +96,7 @@ export default defineComponent({
       {
         title: "Publikationsjahr",
         sortable: true,
-        value: "publicationDate",
+        value: "publicationYear",
       },
       {
         title: "Band",
@@ -357,13 +357,52 @@ export default defineComponent({
       executeSearchByRightId(templateName);
     };
 
-    const executeSearchByRightId = (rightId: string) => {
+    const getAccessStatesForDate = () => {
+      api
+          .searchQuery(
+              "",
+              0,
+              1,
+              0,
+              true,
+              searchquerybuilder.buildPublicationYearFilter(searchStore),
+              searchquerybuilder.buildPublicationTypeFilter(searchStore),
+              searchquerybuilder.buildAccessStateFilter(searchStore),
+              searchquerybuilder.buildTempValFilter(searchStore),
+              searchquerybuilder.buildStartDateAtFilter(searchStore),
+              searchquerybuilder.buildEndDateAtFilter(searchStore),
+              searchquerybuilder.buildFormalRuleFilter(searchStore),
+              searchquerybuilder.buildValidOnFilter(searchStore),
+              searchquerybuilder.buildPaketSigelIdFilter(searchStore),
+              searchquerybuilder.buildZDBIdFilter(searchStore),
+              searchquerybuilder.buildNoRightInformation(searchStore),
+              searchquerybuilder.buildTemplateNameFilter(searchStore),
+              searchquerybuilder.buildSeriesFilter(searchStore),
+              searchquerybuilder.buildLicenceUrlFilter(searchStore),
+              searchquerybuilder.buildManualRightFilter(searchStore),
+              searchStore.accessStateOnDateState.dateValueFormatted, // The interesting line
+          ).then((response: ItemInformation) => {
+        if (response.accessStateWithCount != undefined) {
+          searchStore.accessStateOnDateReceived = response.accessStateWithCount;
+        }
+      })
+          .catch((e) => {
+            error.errorHandling(e, (errMsg: string) => {
+              tableContentLoading.value = false;
+              errorMsg.value = "Fehler beim Ausführen der Suche - " + errMsg;
+              errorMsgIsActive.value = true;
+            });
+          });
+    };
+
+          const executeSearchByRightId = (rightId: string) => {
       api
         .searchQuery(
           "",
           (currentPage.value - 1) * pageSize.value, // offset
           pageSize.value, // limit
           pageSize.value,
+            false,
           undefined,
           undefined,
           undefined,
@@ -377,6 +416,8 @@ export default defineComponent({
           undefined,
             rightId,
           undefined,
+            undefined,
+            undefined,
             undefined,
         )
         .then((response: ItemInformation) => {
@@ -399,6 +440,7 @@ export default defineComponent({
           (currentPage.value - 1) * pageSize.value, // offset
           pageSize.value, // limit
           currentPage.value,
+            false,
           undefined,
           undefined,
           undefined,
@@ -412,6 +454,8 @@ export default defineComponent({
           undefined,
           undefined,
           undefined,
+            undefined,
+            undefined,
             undefined,
         )
         .then((response: ItemInformation) => {
@@ -428,7 +472,7 @@ export default defineComponent({
     };
 
     const executeBookmarkSearch = (bookmark: BookmarkRest) => {
-      searchquerybuilder.setPublicationDateFilter(searchStore, bookmark);
+      searchquerybuilder.setPublicationYearFilter(searchStore, bookmark);
       searchquerybuilder.setPaketSigelFilter(searchStore, bookmark);
       searchquerybuilder.setPublicationTypeFilter(searchStore, bookmark);
       searchquerybuilder.setZDBFilter(searchStore, bookmark);
@@ -442,6 +486,8 @@ export default defineComponent({
       searchquerybuilder.setTemplateNameFilter(searchStore, bookmark);
       searchquerybuilder.setSeriesFilter(searchStore, bookmark);
       searchquerybuilder.setLicenceUrlFilter(searchStore, bookmark);
+      searchquerybuilder.setManualRightFilter(searchStore, bookmark);
+      searchquerybuilder.setAccessStateOnDateFilter(searchStore, bookmark);
       searchStore.searchTerm =
         bookmark.searchTerm != undefined ? bookmark.searchTerm : "";
       closeBookmarkOverview();
@@ -478,7 +524,8 @@ export default defineComponent({
           (currentPage.value - 1) * pageSize.value,
           pageSize.value,
           pageSize.value,
-          searchquerybuilder.buildPublicationDateFilter(searchStore),
+            false,
+          searchquerybuilder.buildPublicationYearFilter(searchStore),
           searchquerybuilder.buildPublicationTypeFilter(searchStore),
           searchquerybuilder.buildAccessStateFilter(searchStore),
           searchquerybuilder.buildTempValFilter(searchStore),
@@ -492,8 +539,11 @@ export default defineComponent({
           searchquerybuilder.buildTemplateNameFilter(searchStore),
           searchquerybuilder.buildSeriesFilter(searchStore),
           searchquerybuilder.buildLicenceUrlFilter(searchStore),
+          searchquerybuilder.buildManualRightFilter(searchStore),
+          searchquerybuilder.buildAccessOnDateFilter(searchStore),
         )
         .then((response: ItemInformation) => {
+          getAccessStatesForDate();
           processSearchResult(response);
         })
         .catch((e) => {
@@ -581,11 +631,11 @@ export default defineComponent({
       );
       searchStore.seriesIdx = reduceIdx(searchStore.seriesIdx);
 
-      searchStore.licenceUrlIdx = searchStore.licenceUrlSelectedLastSearch.map(
+      searchStore.licenceUrlReceived = searchStore.licenceUrlSelectedLastSearch.map(
           (elem: string) => {
             return {
               count: 0,
-              series: elem,
+              licenceUrl: elem,
             } as LicenceUrlCountRest;
           },
       );
@@ -735,7 +785,7 @@ export default defineComponent({
     const newBookmarkId = ref(-1);
     const addBookmarkSuccessful = (bookmarkId: number, bookmarkName: string) => {
       newBookmarkId.value = bookmarkId;
-      successMsg.value = "Bookmark " +
+      successMsg.value = "Gespeicherte Suche " +
           "'" + bookmarkName + " (" + bookmarkId + ")'" +
           " erfolgreich hinzugefügt."
       successMsgIsActive.value = true;
@@ -787,6 +837,7 @@ export default defineComponent({
       closeGroupDialog,
       closeTemplateOverview,
       executeBookmarkSearch,
+      getAccessStatesForDate,
       initSearchByRightId,
       handlePageChange,
       handlePageSizeChange,
@@ -816,6 +867,7 @@ table.special, th.special, td.special {
         <SearchFilter
             v-on:startEmptySearch="startEmptySearch"
             v-on:startSearch="startSearch"
+            v-on:getAccessStatesOnDate="getAccessStatesForDate"
         ></SearchFilter>
   </VResizeDrawer>
   <v-main class="d-flex align-center justify-center">
@@ -841,7 +893,8 @@ table.special, th.special, td.special {
     <v-dialog
       v-model="dialogStore.templateOverviewActivated"
       :retain-focus="false"
-      max-width="1000px"
+      max-width="1500px"
+      max-height="800px"
       v-on:close="closeTemplateOverview"
     >
       <TemplateOverview
@@ -886,7 +939,7 @@ table.special, th.special, td.special {
         :index="-1"
         :isNewRight="false"
         :isNewTemplate="false"
-        :right="queryParameterRight"
+        :rightId="queryParameterRight.rightId"
         v-on:editRightClosed="closeTemplateEditDialog"
       ></RightsEditDialog>
     </v-dialog>
@@ -1058,6 +1111,11 @@ table.special, th.special, td.special {
                         <td class=special>nor</td>
                         <td class=special>nor:on</td>
                       </tr>
+                      <tr class=special>
+                        <td class=special>Access-Status am</td>
+                        <td class=special>acd</td>
+                        <td class=special>STATUS+YYYY-MM-DD</td>
+                      </tr>
                     </tbody>
                   </table>
 
@@ -1119,9 +1177,9 @@ table.special, th.special, td.special {
           <v-spacer></v-spacer>
           <v-snackbar
             multi-line
-            location="top"
+            location="bottom"
             timer="true"
-            timeout="10000"
+            timeout="5000"
             v-model="errorMsgIsActive"
             color="error"
           >
@@ -1131,7 +1189,7 @@ table.special, th.special, td.special {
               multi-line
               location="top"
               timer="true"
-              timeout="10000"
+              timeout="5000"
               v-model="successMsgIsActive"
               color="success"
           >
@@ -1172,6 +1230,10 @@ table.special, th.special, td.special {
             @click:row="addActiveItem"
             @dblclick:row="setActiveItem"
           >
+            <template v-slot:item.title="{ item }">
+             <td v-if="item.deleted">❌{{item.title}} </td>
+              <td v-else>{{item.title}} </td>
+            </template>
             <template v-slot:item.handle="{ item }">
               <td>
                 <a
@@ -1187,9 +1249,6 @@ table.special, th.special, td.special {
             </template>
             <template v-slot:item.publicationType="{ item }">
               <td>{{ parsePublicationType(item.publicationType) }}</td>
-            </template>
-            <template v-slot:item.publicationDate="{ item }">
-              <td v-if="item.publicationDate != undefined">{{ item.publicationDate.toLocaleDateString("de") }}</td>
             </template>
             <template #bottom></template>
           </v-data-table>

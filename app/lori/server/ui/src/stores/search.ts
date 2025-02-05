@@ -16,12 +16,14 @@ export const useSearchStore = defineStore("search", () => {
   const accessStateIdx: Ref<Array<boolean>> = ref([]);
   const accessStateReceived: Ref<Array<AccessStateWithCountRest>> = ref([]);
   const accessStateSelectedLastSearch: Ref<Array<string>> = ref([]);
+
   const accessStateClosed = ref(false);
   const accessStateOpen = ref(false);
   const accessStateRestricted = ref(false);
 
   const hasLicenceContract = ref(false);
   const hasOpenContentLicence = ref(false);
+  const manualRight = ref(false);
   const noRightInformation = ref(false);
   const hasZbwUserAgreement = ref(false);
 
@@ -29,8 +31,8 @@ export const useSearchStore = defineStore("search", () => {
   const formalRuleOpenContentLicence = ref(false);
   const formalRuleUserAgreement = ref(false);
 
-  const publicationDateFrom = ref("");
-  const publicationDateTo = ref("");
+  const publicationYearFrom = ref("");
+  const publicationYearTo = ref("");
 
   const paketSigelIdIdx: Ref<Array<boolean>> = ref([]);
   const paketSigelIdReceived: Ref<Array<PaketSigelWithCountRest>> = ref([]);
@@ -68,11 +70,21 @@ export const useSearchStore = defineStore("search", () => {
   const licenceUrlReceived: Ref<Array<LicenceUrlCountRest>> = ref([]);
   const licenceUrlSelectedLastSearch: Ref<Array<string>> = ref([]);
 
+  const accessStateOnDateState = reactive({
+    dateValueFormatted: "",
+    accessState: "",
+  });
+  const accessStateOnDateReceived: Ref<Array<AccessStateWithCountRest>> = ref([]);
+  const accessStateOnDateIdx: Ref<Array<string>> = ref([]);
+
   // Deployment Stage
   const stage = ref("");
   const handleURLResolver = ref("");
 
   return {
+    accessStateOnDateIdx,
+    accessStateOnDateReceived,
+    accessStateOnDateState,
     lastSearchTerm,
     accessStateIdx,
     accessStateSelectedLastSearch,
@@ -87,6 +99,7 @@ export const useSearchStore = defineStore("search", () => {
     hasLicenceContract,
     hasOpenContentLicence,
     hasZbwUserAgreement,
+    manualRight,
     noRightInformation,
     isLastSearchForTemplates,
     licenceUrlIdx,
@@ -98,8 +111,8 @@ export const useSearchStore = defineStore("search", () => {
     publicationTypeIdx,
     publicationTypeReceived,
     publicationTypeSelectedLastSearch,
-    publicationDateFrom,
-    publicationDateTo,
+    publicationYearFrom,
+    publicationYearTo,
     searchTerm,
     seriesIdx,
     seriesReceived,

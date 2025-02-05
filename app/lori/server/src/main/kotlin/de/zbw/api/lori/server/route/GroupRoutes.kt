@@ -1,6 +1,7 @@
 package de.zbw.api.lori.server.route
 
 import de.zbw.api.lori.server.exception.ResourceStillInUseException
+import de.zbw.api.lori.server.type.UserSession
 import de.zbw.api.lori.server.type.toBusiness
 import de.zbw.api.lori.server.type.toRest
 import de.zbw.business.lori.server.LoriServerBackend
@@ -11,6 +12,7 @@ import de.zbw.lori.model.GroupRest
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.auth.authenticate
+import io.ktor.server.auth.principal
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -57,9 +59,26 @@ fun Routing.groupRoutes(
                                 .takeIf { it.groupId != null && it.allowedAddressesRaw != null && it.title != null }
                                 ?: throw BadRequestException("Invalid Json has been provided")
                         span.setAttribute("group", group.toString())
-                        val pk = backend.insertGroup(group.toBusiness())
+                        val userSession: UserSession =
+                            call.principal<UserSession>()
+                                ?: return@withContext call.respond(
+                                    HttpStatusCode.Unauthorized,
+                                    ApiError.unauthorizedError("User is not authorized"),
+                                ) // This should never happen
+                        val pk =
+                            backend.insertGroup(
+                                group
+                                    .copy(
+                                        createdBy = userSession.email,
+                                        lastUpdatedBy = userSession.email,
+                                        version = 0,
+                                    ).toBusiness(),
+                            )
                         span.setStatus(StatusCode.OK)
-                        call.respond(HttpStatusCode.Created, GroupIdCreated(pk))
+                        call.respond(
+                            HttpStatusCode.Created,
+                            GroupIdCreated(pk),
+                        )
                     } catch (e: BadRequestException) {
                         span.setStatus(StatusCode.ERROR, "BadRequest: ${e.message}")
                         call.respond(
@@ -126,19 +145,21 @@ fun Routing.groupRoutes(
                                 .takeIf { it.groupId != null && it.allowedAddressesRaw != null && it.title != null }
                                 ?: throw BadRequestException("Invalid Json has been provided")
                         span.setAttribute("group", group.toString())
-                        val insertedRows = backend.updateGroup(group.toBusiness())
-                        if (insertedRows == 1) {
-                            span.setStatus(StatusCode.OK)
-                            call.respond(HttpStatusCode.NoContent)
-                        } else {
-                            span.setStatus(StatusCode.ERROR)
-                            call.respond(
-                                HttpStatusCode.NotFound,
-                                ApiError.notFoundError(
-                                    detail = "Für die Gruppe '${group.title} (${group.groupId})' existiert kein Eintrag.",
-                                ),
+                        val userSession: UserSession =
+                            call.principal<UserSession>()
+                                ?: return@withContext call.respond(
+                                    HttpStatusCode.Unauthorized,
+                                    ApiError.unauthorizedError("User is not authorized"),
+                                ) //
+                        val pk =
+                            backend.updateGroup(
+                                group.copy().toBusiness(),
+                                userSession.email,
                             )
-                        }
+                        span.setStatus(StatusCode.OK)
+                        call.respond(
+                            HttpStatusCode.NoContent,
+                        )
                     } catch (iae: IllegalArgumentException) {
                         span.setStatus(StatusCode.ERROR, "BadRequest: ${iae.message}")
                         call.respond(
@@ -147,6 +168,24 @@ fun Routing.groupRoutes(
                                 detail = "Das CSV File hat die falsche Anzahl an Spalten.",
                             ),
                         )
+                    } catch (pe: PSQLException) {
+                        if (pe.sqlState == ApiError.PSQL_CONFLICT_ERR_CODE) {
+                            span.setStatus(StatusCode.ERROR, "Exception: ${pe.message}")
+                            call.respond(
+                                HttpStatusCode.Conflict,
+                                ApiError.conflictError(
+                                    detail = "Beim Updaten kam es zu einer Race Condition. Bitte erneut probieren.",
+                                ),
+                            )
+                        } else {
+                            span.setStatus(StatusCode.ERROR, "Exception: ${pe.message}")
+                            call.respond(
+                                HttpStatusCode.InternalServerError,
+                                ApiError.internalServerError(
+                                    detail = "Ein interner Datenbankfehler ist aufgetreten.",
+                                ),
+                            )
+                        }
                     } catch (e: BadRequestException) {
                         span.setStatus(StatusCode.ERROR, "BadRequest: ${e.message}")
                         call.respond(
@@ -233,12 +272,14 @@ fun Routing.groupRoutes(
             withContext(span.asContextElement()) {
                 try {
                     val groupId = call.parameters["id"]?.toIntOrNull()
+                    val version = call.request.queryParameters["version"]?.toIntOrNull()
                     span.setAttribute("groupId", groupId?.toString() ?: "null")
+                    span.setAttribute("version", groupId?.toString() ?: "null")
                     if (groupId == null) {
                         span.setStatus(StatusCode.ERROR, "BadRequest: No valid id has been provided in the url.")
                         call.respond(HttpStatusCode.BadRequest, "No valid id has been provided in the url.")
                     } else {
-                        val group: Group? = backend.getGroupById(groupId)
+                        val group: Group? = backend.getGroupById(groupId, version)
                         group?.let {
                             span.setStatus(StatusCode.OK)
                             call.respond(group.toRest())
@@ -294,16 +335,9 @@ fun Routing.groupRoutes(
                             )
                             return@withContext
                         }
-                        val idsOnly: Boolean = call.request.queryParameters["idOnly"]?.toBoolean() ?: false
-                        if (idsOnly) {
-                            val receivedGroups: List<Group> = backend.getGroupListIdsOnly(limit, offset)
-                            span.setStatus(StatusCode.OK)
-                            call.respond(receivedGroups.map { it.toRest() })
-                        } else {
-                            val receivedGroups: List<Group> = backend.getGroupList(limit, offset)
-                            span.setStatus(StatusCode.OK)
-                            call.respond(receivedGroups.map { it.toRest() })
-                        }
+                        val receivedGroups: List<Group> = backend.getGroupList(limit, offset)
+                        span.setStatus(StatusCode.OK)
+                        call.respond(receivedGroups.map { it.toRest() })
                     } catch (e: Exception) {
                         span.setStatus(StatusCode.ERROR, "Exception: ${e.message}")
                         call.respond(

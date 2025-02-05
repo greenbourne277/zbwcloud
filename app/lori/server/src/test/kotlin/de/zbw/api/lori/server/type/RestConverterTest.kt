@@ -1,18 +1,22 @@
 package de.zbw.api.lori.server.type
 
 import de.zbw.api.lori.server.connector.DAConnector
+import de.zbw.api.lori.server.route.ErrorRoutesKtTest
 import de.zbw.api.lori.server.route.QueryParameterParser
 import de.zbw.business.lori.server.type.AccessState
 import de.zbw.business.lori.server.type.BasisAccessState
 import de.zbw.business.lori.server.type.BasisStorage
 import de.zbw.business.lori.server.type.Bookmark
+import de.zbw.business.lori.server.type.ConflictType
 import de.zbw.business.lori.server.type.Group
 import de.zbw.business.lori.server.type.GroupEntry
 import de.zbw.business.lori.server.type.Item
 import de.zbw.business.lori.server.type.ItemMetadata
 import de.zbw.business.lori.server.type.ItemRight
 import de.zbw.business.lori.server.type.PublicationType
+import de.zbw.business.lori.server.type.RightError
 import de.zbw.business.lori.server.type.SearchQueryResult
+import de.zbw.business.lori.server.type.TemplateApplicationResult
 import de.zbw.lori.model.AccessStateWithCountRest
 import de.zbw.lori.model.IsPartOfSeriesCountRest
 import de.zbw.lori.model.ItemInformation
@@ -22,8 +26,10 @@ import de.zbw.lori.model.MetadataRest
 import de.zbw.lori.model.PaketSigelWithCountRest
 import de.zbw.lori.model.PublicationTypeWithCountRest
 import de.zbw.lori.model.RightRest
+import de.zbw.lori.model.TemplateApplicationRest
 import de.zbw.lori.model.TemplateNameWithCountRest
 import de.zbw.lori.model.ZdbIdWithCountRest
+import de.zbw.persistence.lori.server.GroupDBTest.Companion.NOW
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.MatcherAssert.assertThat
 import org.testng.Assert
@@ -55,6 +61,7 @@ class RestConverterTest {
                         communityName = TEST_METADATA.communityName,
                         createdBy = TEST_METADATA.createdBy,
                         createdOn = TEST_METADATA.createdOn,
+                        deleted = TEST_METADATA.deleted,
                         doi = TEST_METADATA.doi,
                         handle = TEST_METADATA.handle,
                         isbn = TEST_METADATA.isbn,
@@ -66,7 +73,7 @@ class RestConverterTest {
                         paketSigel = TEST_METADATA.paketSigel,
                         ppn = TEST_METADATA.ppn,
                         publicationType = TEST_METADATA.publicationType.toRest(),
-                        publicationDate = TEST_METADATA.publicationDate,
+                        publicationYear = TEST_METADATA.publicationYear,
                         rightsK10plus = TEST_METADATA.rightsK10plus,
                         subCommunityHandle = TEST_METADATA.subCommunityHandle,
                         subCommunityName = TEST_METADATA.subCommunityName,
@@ -88,8 +95,8 @@ class RestConverterTest {
                             createdBy = TEST_RIGHT.createdBy,
                             createdOn = TEST_RIGHT.createdOn,
                             endDate = TEST_RIGHT.endDate,
-                            groupIds = null,
-                            groups = null,
+                            groupIds = TEST_RIGHT.groupIds,
+                            groups = TEST_RIGHT.groups?.map { it.toRest() },
                             isTemplate = TEST_RIGHT.isTemplate,
                             lastAppliedOn = TEST_RIGHT.lastAppliedOn,
                             lastUpdatedBy = TEST_RIGHT.lastUpdatedBy,
@@ -129,6 +136,7 @@ class RestConverterTest {
                 communityHandle = "11159/850",
                 createdBy = null,
                 createdOn = null,
+                deleted = false,
                 doi = null,
                 handle = "11159/848",
                 isbn = null,
@@ -141,7 +149,7 @@ class RestConverterTest {
                 paketSigel = null,
                 ppn = null,
                 publicationType = PublicationType.ARTICLE,
-                publicationDate = LocalDate.of(2022, 9, 1),
+                publicationYear = 2022,
                 rightsK10plus = null,
                 storageDate =
                     OffsetDateTime.of(
@@ -212,6 +220,12 @@ class RestConverterTest {
                         ),
                     ),
                 title = "some title",
+                createdOn = NOW.minusMonths(1L),
+                lastUpdatedOn = NOW,
+                createdBy = "user1",
+                lastUpdatedBy = "user2",
+                version = 0,
+                oldVersions = emptyList(),
             )
         assertThat(
             (givenGroup.toRest()).toBusiness(),
@@ -525,6 +539,41 @@ class RestConverterTest {
         )
     }
 
+    @Test
+    fun testTemplateApplicationConversion() {
+        // given
+        val example: TemplateApplicationResult =
+            TEST_TEMPLATE_APPLICATION_RESULT.copy(
+                exceptionTemplateApplicationResult =
+                    listOf(
+                        TEST_TEMPLATE_APPLICATION_RESULT.copy(rightId = "6", templateName = "exc"),
+                    ),
+            )
+        val expected =
+            TemplateApplicationRest(
+                handles = TEST_TEMPLATE_APPLICATION_RESULT.appliedMetadataHandles,
+                rightId = TEST_TEMPLATE_APPLICATION_RESULT.rightId,
+                templateName = TEST_TEMPLATE_APPLICATION_RESULT.templateName,
+                errors = TEST_TEMPLATE_APPLICATION_RESULT.errors.map { it.toRest() },
+                numberOfErrors = TEST_TEMPLATE_APPLICATION_RESULT.numberOfErrors,
+                numberOfAppliedEntries = TEST_TEMPLATE_APPLICATION_RESULT.appliedMetadataHandles.size,
+                testId = TEST_TEMPLATE_APPLICATION_RESULT.testId,
+                exceptionTemplateApplications =
+                    listOf(
+                        TEST_TEMPLATE_APPLICATION_RESULT.copy(rightId = "6", templateName = "exc").toRest(),
+                    ),
+            )
+
+        // when
+        val received = example.toRest()
+
+        // then
+        assertThat(
+            received,
+            `is`(expected),
+        )
+    }
+
     companion object {
         const val DATA_FOR_PARSE_TO_GROUP = "DATA_FOR_PARSE_TO_GROUP"
         const val DATA_FOR_PARSE_HANDLE = "DATA_FOR_PARSE_HANDLE"
@@ -549,6 +598,7 @@ class RestConverterTest {
                         0,
                         ZoneOffset.UTC,
                     ),
+                deleted = false,
                 doi = "doi:example.org",
                 handle = "hdl:example.handle.net",
                 isbn = "1234567890123",
@@ -571,7 +621,7 @@ class RestConverterTest {
                 paketSigel = "sigel",
                 ppn = "ppn",
                 publicationType = PublicationType.BOOK,
-                publicationDate = LocalDate.of(2022, 9, 1),
+                publicationYear = 2022,
                 rightsK10plus = "some rights",
                 storageDate = OffsetDateTime.now(),
                 subCommunityHandle = "11159/1114",
@@ -604,8 +654,48 @@ class RestConverterTest {
                     ),
                 endDate = TODAY,
                 exceptionFrom = null,
-                groups = null,
-                groupIds = null,
+                groups =
+                    listOf(
+                        Group(
+                            groupId = 1,
+                            version = 10,
+                            description = "foobar",
+                            entries =
+                                listOf(
+                                    GroupEntry(
+                                        organisationName = "blablub",
+                                        ipAddresses = "127.0.0.1",
+                                    ),
+                                ),
+                            title = "some tilte",
+                            createdBy = "user1",
+                            lastUpdatedBy = "user 2",
+                            createdOn =
+                                OffsetDateTime.of(
+                                    2022,
+                                    3,
+                                    4,
+                                    1,
+                                    1,
+                                    0,
+                                    0,
+                                    ZoneOffset.UTC,
+                                ),
+                            lastUpdatedOn =
+                                OffsetDateTime.of(
+                                    2022,
+                                    3,
+                                    4,
+                                    1,
+                                    1,
+                                    0,
+                                    0,
+                                    ZoneOffset.UTC,
+                                ),
+                            oldVersions = emptyList(),
+                        ),
+                    ),
+                groupIds = listOf(1),
                 isTemplate = true,
                 lastAppliedOn =
                     OffsetDateTime.of(
@@ -775,7 +865,7 @@ class RestConverterTest {
                 bookmarkName = "test",
                 description = "some description",
                 searchTerm = "tit:someTitle",
-                publicationDateFilter = QueryParameterParser.parsePublicationDateFilter("2020-2030"),
+                publicationYearFilter = QueryParameterParser.parsePublicationYearFilter("2020-2030"),
                 publicationTypeFilter = QueryParameterParser.parsePublicationTypeFilter("BOOK,ARTICLE"),
                 accessStateFilter = QueryParameterParser.parseAccessStateFilter("OPEN,RESTRICTED"),
                 temporalValidityFilter = QueryParameterParser.parseTemporalValidity("FUTURE,PAST"),
@@ -786,6 +876,8 @@ class RestConverterTest {
                 paketSigelFilter = QueryParameterParser.parsePaketSigelFilter("sigel"),
                 zdbIdFilter = QueryParameterParser.parseZDBIdFilter("zdbId1,zdbId2"),
                 noRightInformationFilter = QueryParameterParser.parseNoRightInformationFilter("false"),
+                manualRightFilter = QueryParameterParser.parseManualRightFilter("true"),
+                accessStateOnFilter = QueryParameterParser.parseAccessStateOnDate("OPEN+2024-09-17"),
                 lastUpdatedOn =
                     OffsetDateTime.of(
                         2022,
@@ -810,6 +902,31 @@ class RestConverterTest {
                         0,
                         ZoneOffset.UTC,
                     ),
+            )
+
+        val TEST_TEMPLATE_APPLICATION_RESULT =
+            TemplateApplicationResult(
+                rightId = "5",
+                templateName = "parent",
+                testId = "foobar",
+                appliedMetadataHandles = listOf("one", "two"),
+                errors =
+                    listOf(
+                        RightError(
+                            errorId = 1,
+                            message = "Timing conflict",
+                            conflictingWithRightId = "sourceRightId",
+                            conflictByRightId = "conflictingRightId",
+                            handle = "somehandle",
+                            createdOn = ErrorRoutesKtTest.Companion.NOW,
+                            conflictType = ConflictType.DATE_OVERLAP,
+                            conflictByContext = "template name",
+                            testId = null,
+                            createdBy = "user1",
+                        ),
+                    ),
+                numberOfErrors = 1,
+                exceptionTemplateApplicationResult = emptyList(),
             )
     }
 }

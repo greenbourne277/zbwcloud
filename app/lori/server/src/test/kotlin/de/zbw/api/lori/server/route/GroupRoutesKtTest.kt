@@ -10,6 +10,7 @@ import de.zbw.business.lori.server.LoriServerBackend
 import de.zbw.business.lori.server.type.Group
 import de.zbw.business.lori.server.type.GroupEntry
 import de.zbw.lori.model.GroupRest
+import de.zbw.persistence.lori.server.GroupDBTest.Companion.NOW
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -45,7 +46,7 @@ class GroupRoutesKtTest {
         val expected = TEST_GROUP.toRest()
         val backend =
             mockk<LoriServerBackend>(relaxed = true) {
-                coEvery { getGroupById(groupId) } returns TEST_GROUP
+                coEvery { getGroupById(groupId, null) } returns TEST_GROUP
             }
         val servicePool = getServicePool(backend)
         // when + then
@@ -68,7 +69,7 @@ class GroupRoutesKtTest {
         val groupId = 1
         val backend =
             mockk<LoriServerBackend>(relaxed = true) {
-                coEvery { getGroupById(groupId) } returns null
+                coEvery { getGroupById(groupId, null) } returns null
             }
         val servicePool = getServicePool(backend)
         // when + then
@@ -88,7 +89,7 @@ class GroupRoutesKtTest {
         val groupId = 1
         val backend =
             mockk<LoriServerBackend>(relaxed = true) {
-                coEvery { getGroupById(groupId) } throws SQLException()
+                coEvery { getGroupById(groupId, null) } throws SQLException()
             }
         val servicePool = getServicePool(backend)
         // when + then
@@ -291,7 +292,7 @@ class GroupRoutesKtTest {
         // given
         val backend =
             mockk<LoriServerBackend>(relaxed = true) {
-                coEvery { updateGroup(any()) } returns 1
+                coEvery { updateGroup(any(), any()) } returns 1
             }
         val servicePool = getServicePool(backend)
         // when + then
@@ -315,7 +316,7 @@ class GroupRoutesKtTest {
         // given
         val backend =
             mockk<LoriServerBackend>(relaxed = true) {
-                coEvery { updateGroup(any()) } returns 1
+                coEvery { updateGroup(any(), any()) } returns 1
             }
         val servicePool = getServicePool(backend)
         // when + then
@@ -335,11 +336,11 @@ class GroupRoutesKtTest {
     }
 
     @Test
-    fun testPutGroupNotFound() {
+    fun testPutNoChanges() {
         // given
         val backend =
             mockk<LoriServerBackend>(relaxed = true) {
-                coEvery { updateGroup(any()) } returns 0
+                coEvery { updateGroup(any(), any()) } returns 0
             }
         val servicePool = getServicePool(backend)
         // when + then
@@ -354,7 +355,7 @@ class GroupRoutesKtTest {
                     header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
                     setBody(jsonAsString(TEST_GROUP.toRest()))
                 }
-            assertThat("Should return 404", response.status, `is`(HttpStatusCode.NotFound))
+            assertThat("Should return 204", response.status, `is`(HttpStatusCode.NoContent))
         }
     }
 
@@ -363,7 +364,7 @@ class GroupRoutesKtTest {
         // given
         val backend =
             mockk<LoriServerBackend>(relaxed = true) {
-                coEvery { updateGroup(any()) } throws SQLException()
+                coEvery { updateGroup(any(), any()) } throws SQLException()
             }
         val servicePool = getServicePool(backend)
         // when + then
@@ -418,25 +419,13 @@ class GroupRoutesKtTest {
                 entries = emptyList(),
                 description = null,
                 title = "foo",
+                createdOn = NOW.minusMonths(1L),
+                lastUpdatedOn = NOW,
+                createdBy = "user1",
+                lastUpdatedBy = "user2",
+                version = 0,
+                oldVersions = emptyList(),
             )
-        val expected = listOf(givenGroup.toRest())
-        val backend =
-            mockk<LoriServerBackend>(relaxed = true) {
-                coEvery { getGroupListIdsOnly(limit, offset) } returns listOf(givenGroup)
-            }
-        val servicePool = getServicePool(backend)
-        // when + then
-        testApplication {
-            moduleAuthForTests()
-            application(
-                servicePool.testApplication(),
-            )
-            val response = client.get("/api/v1/group/list?limit=$limit&offset=$offset&idOnly=True")
-            val content: String = response.bodyAsText()
-            val groupListType: Type = object : TypeToken<ArrayList<GroupRest>>() {}.type
-            val received: ArrayList<GroupRest> = GSON.fromJson(content, groupListType)
-            assertThat(received, `is`(expected))
-        }
     }
 
     @Test
@@ -491,6 +480,12 @@ class GroupRoutesKtTest {
                         ),
                     ),
                 title = "some title",
+                createdOn = NOW.minusMonths(1L),
+                lastUpdatedOn = NOW,
+                createdBy = "user1",
+                lastUpdatedBy = "user2",
+                version = 0,
+                oldVersions = emptyList(),
             )
     }
 }

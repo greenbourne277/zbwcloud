@@ -8,6 +8,7 @@ import {
   TemplateNameWithCountRest,
   ZdbIdWithCountRest,
 } from "@/generated-sources/openapi";
+import date_utils from "@/utils/date_utils";
 
 const QUERY_PARAMETER_TEMPLATE_ID = "templateId";
 const QUERY_PARAMETER_RIGHT_ID = "rightId";
@@ -19,25 +20,25 @@ export default {
   QUERY_PARAMETER_DASHBOARD_HANDLE_SEARCH,
   QUERY_PARAMETER_TEMPLATE_ID,
 
-  setPublicationDateFilter(searchStore: any, bookmark: BookmarkRest): void {
-    if (bookmark.filterPublicationDate == undefined) {
-      searchStore.publicationDateFrom = "";
-      searchStore.publicationDateTo = "";
+  setPublicationYearFilter(searchStore: any, bookmark: BookmarkRest): void {
+    if (bookmark.filterPublicationYear == undefined) {
+      searchStore.publicationYearFrom = "";
+      searchStore.publicationYearTo = "";
       return;
     }
-    if (bookmark.filterPublicationDate.fromYear !== undefined) {
-      searchStore.publicationDateFrom = bookmark.filterPublicationDate.fromYear;
+    if (bookmark.filterPublicationYear.fromYear !== undefined) {
+      searchStore.publicationYearFrom = bookmark.filterPublicationYear.fromYear;
     }
-    if (bookmark.filterPublicationDate.toYear !== undefined) {
-      searchStore.publicationDateTo = bookmark.filterPublicationDate.toYear;
+    if (bookmark.filterPublicationYear.toYear !== undefined) {
+      searchStore.publicationYearTo = bookmark.filterPublicationYear.toYear;
     }
   },
 
-  buildPublicationDateFilter(searchStore: any): string | undefined {
-    return searchStore.publicationDateFrom == "" &&
-      searchStore.publicationDateTo == ""
+  buildPublicationYearFilter(searchStore: any): string | undefined {
+    return searchStore.publicationYearFrom == "" &&
+      searchStore.publicationYearTo == ""
       ? undefined
-      : searchStore.publicationDateFrom + "-" + searchStore.publicationDateTo;
+      : searchStore.publicationYearFrom + "-" + searchStore.publicationYearTo;
   },
 
   setPaketSigelFilter(searchStore: any, bookmark: BookmarkRest): void {
@@ -246,7 +247,7 @@ export default {
       },
     );
 
-    // Remind selected ids, for resetting the filter afterwards correctly.
+    // Remind selected ids, for resetting the filter correctly afterward.
     searchStore.accessStateSelectedLastSearch = accessStates.map((value) =>
       value.toLowerCase(),
     );
@@ -462,15 +463,41 @@ export default {
 
   setValidOnFilter(searchStore: any, bookmark: BookmarkRest): void {
     if (bookmark.filterValidOn == undefined) {
-      searchStore.temporalValidOn = undefined;
+      searchStore.temporalValidOnFormatted = "";
       return;
     }
-    searchStore.temporalValidOn = bookmark.filterValidOn;
+    searchStore.temporalValidOnFormatted = date_utils.dateToIso8601(bookmark.filterValidOn);
   },
 
   buildValidOnFilter(searchStore: any): string | undefined {
     if (searchStore.temporalValidOnFormatted != undefined && searchStore.temporalValidOnFormatted != "") {
       return searchStore.temporalValidOnFormatted;
+    } else {
+      return undefined;
+    }
+  },
+
+  setAccessStateOnDateFilter(searchStore: any, bookmark: BookmarkRest): void {
+    if (bookmark.filterAccessOnDate == undefined) {
+      searchStore.accessStateOnDateState.dateValueFormatted = "";
+      searchStore.accessStateOnDateState.accessState = "";
+      return;
+    }
+
+    searchStore.accessStateOnDateState.dateValueFormatted = date_utils.dateToIso8601(bookmark.filterAccessOnDate.date);
+    searchStore.accessStateOnDateState.accessState = bookmark.filterAccessOnDate.accessState;
+    searchStore.accessStateOnDateIdx = [bookmark.filterAccessOnDate.accessState.toLowerCase()];
+  },
+
+
+  buildAccessOnDateFilter(searchStore: any): string | undefined {
+    if (
+        searchStore.accessStateOnDateState.dateValueFormatted != undefined &&
+        searchStore.accessStateOnDateState.dateValueFormatted != "" &&
+        searchStore.accessStateOnDateIdx.filter((e: string) => e != undefined).length == 1
+    ) {
+      let filteredAccessState = searchStore.accessStateOnDateIdx.filter((e: string) => e != undefined)
+      return filteredAccessState[0].toUpperCase() + "+" + searchStore.accessStateOnDateState.dateValueFormatted;
     } else {
       return undefined;
     }
@@ -492,6 +519,22 @@ export default {
     }
   },
 
+  setManualRightFilter(searchStore: any, bookmark: BookmarkRest): void {
+    if (bookmark.filterManualRight == undefined) {
+      searchStore.manualRight = false;
+      return;
+    }
+    searchStore.manualRight = bookmark.filterManualRight;
+  },
+
+  buildManualRightFilter(searchStore: any): string | undefined {
+    if (searchStore.manualRight) {
+      return "true";
+    } else {
+      return undefined;
+    }
+  },
+
   accessStateToType(a: string): AccessStateRest {
     switch (a) {
       case "open":
@@ -504,7 +547,6 @@ export default {
   },
 
   publicationTypeToType(t: string): PublicationTypeRest {
-    console.log(t);
     switch (t) {
       case "article":
         return PublicationTypeRest.Article;

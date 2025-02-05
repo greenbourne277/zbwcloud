@@ -66,7 +66,7 @@ export default defineComponent({
             bookmarkName,
             description.value,
             searchStore.lastSearchTerm,
-            searchquerybuilder.buildPublicationDateFilter(searchStore),
+            searchquerybuilder.buildPublicationYearFilter(searchStore),
             searchquerybuilder.buildPublicationTypeFilter(searchStore),
             searchquerybuilder.buildAccessStateFilter(searchStore),
             searchquerybuilder.buildTempValFilter(searchStore),
@@ -80,6 +80,8 @@ export default defineComponent({
             searchquerybuilder.buildSeriesFilter(searchStore),
             searchquerybuilder.buildTemplateNameFilter(searchStore),
             searchquerybuilder.buildLicenceUrlFilter(searchStore),
+            searchquerybuilder.buildManualRightFilter(searchStore),
+            searchquerybuilder.buildAccessOnDateFilter(searchStore),
           )
           .then((r: BookmarkIdCreated) => {
             emit("addBookmarkSuccessful", r.bookmarkId, bookmarkName);
@@ -163,7 +165,7 @@ export default defineComponent({
           multi-line
           location="top"
           timer="true"
-          timeout="10000"
+          timeout="5000"
           v-model="saveAlertError"
           color="error"
       >

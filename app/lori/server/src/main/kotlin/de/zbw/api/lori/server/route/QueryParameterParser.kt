@@ -1,6 +1,7 @@
 package de.zbw.api.lori.server.route
 
 import de.zbw.business.lori.server.AccessStateFilter
+import de.zbw.business.lori.server.AccessStateOnDateFilter
 import de.zbw.business.lori.server.DashboardConflictTypeFilter
 import de.zbw.business.lori.server.DashboardTemplateNameFilter
 import de.zbw.business.lori.server.DashboardTimeIntervalEndFilter
@@ -8,10 +9,11 @@ import de.zbw.business.lori.server.DashboardTimeIntervalStartFilter
 import de.zbw.business.lori.server.EndDateFilter
 import de.zbw.business.lori.server.FormalRuleFilter
 import de.zbw.business.lori.server.LicenceUrlFilter
+import de.zbw.business.lori.server.ManualRightFilter
 import de.zbw.business.lori.server.NoRightInformationFilter
 import de.zbw.business.lori.server.PaketSigelFilter
-import de.zbw.business.lori.server.PublicationDateFilter
 import de.zbw.business.lori.server.PublicationTypeFilter
+import de.zbw.business.lori.server.PublicationYearFilter
 import de.zbw.business.lori.server.RightValidOnFilter
 import de.zbw.business.lori.server.SeriesFilter
 import de.zbw.business.lori.server.StartDateFilter
@@ -34,7 +36,7 @@ import java.time.format.DateTimeFormatter
  * @author Christian Bay (c.bay@zbw.eu)
  */
 object QueryParameterParser {
-    fun parsePublicationDateFilter(s: String?): PublicationDateFilter? {
+    fun parsePublicationYearFilter(s: String?): PublicationYearFilter? {
         if (s == null) {
             return null
         }
@@ -42,7 +44,7 @@ object QueryParameterParser {
         val noFromYear = s.matches("-\\d+".toRegex())
         val both = s.matches("\\d+-\\d+".toRegex())
         return if (noFromYear || noToYear || both) {
-            PublicationDateFilter(
+            PublicationYearFilter(
                 noFromYear
                     .takeIf { !it }
                     ?.let { s.substringBefore("-").toInt() },
@@ -63,7 +65,7 @@ object QueryParameterParser {
             s.split(",".toRegex()).mapNotNull {
                 try {
                     PublicationType.valueOf(it)
-                } catch (iae: IllegalArgumentException) {
+                } catch (_: IllegalArgumentException) {
                     null
                 }
             }
@@ -102,7 +104,7 @@ object QueryParameterParser {
             s.split(",".toRegex()).mapNotNull {
                 try {
                     AccessState.valueOf(it)
-                } catch (iae: IllegalArgumentException) {
+                } catch (_: IllegalArgumentException) {
                     null
                 }
             }
@@ -117,7 +119,7 @@ object QueryParameterParser {
             s.split(",".toRegex()).mapNotNull {
                 try {
                     TemporalValidity.valueOf(it)
-                } catch (iae: IllegalArgumentException) {
+                } catch (_: IllegalArgumentException) {
                     null
                 }
             }
@@ -139,10 +141,39 @@ object QueryParameterParser {
             ?.let { parseDate(it) }
             ?.let { RightValidOnFilter(it) }
 
+    fun parseAccessStateOnDate(s: String?): AccessStateOnDateFilter? {
+        // Format: OPEN+2024-09-17 or 2024-09-17
+        if (s == null) {
+            return null
+        }
+        val tokens: List<String> = s.split("\\+".toRegex())
+        return if (tokens.size == 2) {
+            val parsedDate = parseDate(tokens[1])
+            if (parsedDate == null) {
+                return null
+            }
+            AccessStateOnDateFilter(
+                accessState = AccessState.valueOf(tokens[0].uppercase()),
+                date = parsedDate,
+            )
+        } else if (tokens.size == 1) {
+            val parsedDate = parseDate(tokens[0])
+            if (parsedDate == null) {
+                return null
+            }
+            AccessStateOnDateFilter(
+                accessState = null,
+                date = parsedDate,
+            )
+        } else {
+            null
+        }
+    }
+
     private fun parseDate(s: String): LocalDate? =
         try {
             LocalDate.parse(s, DateTimeFormatter.ISO_LOCAL_DATE)
-        } catch (dte: DateTimeException) {
+        } catch (_: DateTimeException) {
             null
         }
 
@@ -152,7 +183,7 @@ object QueryParameterParser {
                 input.split(",".toRegex()).mapNotNull {
                     try {
                         FormalRule.valueOf(it.uppercase())
-                    } catch (iae: IllegalArgumentException) {
+                    } catch (_: IllegalArgumentException) {
                         null
                     }
                 }
@@ -163,6 +194,15 @@ object QueryParameterParser {
         s?.let { input ->
             if (input.lowercase().toBoolean()) {
                 NoRightInformationFilter()
+            } else {
+                null
+            }
+        }
+
+    fun parseManualRightFilter(s: String?): ManualRightFilter? =
+        s?.let { input ->
+            if (input.lowercase().toBoolean()) {
+                ManualRightFilter()
             } else {
                 null
             }
@@ -194,7 +234,7 @@ object QueryParameterParser {
             s.split(",".toRegex()).mapNotNull {
                 try {
                     ConflictType.valueOf(it.uppercase())
-                } catch (iae: IllegalArgumentException) {
+                } catch (_: IllegalArgumentException) {
                     null
                 }
             }

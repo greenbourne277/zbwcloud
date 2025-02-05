@@ -23,6 +23,7 @@ message ApplyTemplatesRequest {
   bool all = 1;
   repeated string right_ids = 2;
   bool skip_draft = 3;
+  bool dry_run = 4;
 }
 
 enum ConflictType {
@@ -30,6 +31,7 @@ enum ConflictType {
   CONFLICT_TYPE_DATE_OVERLAP = 1;
   CONFLICT_TYPE_GAP = 2;
   CONFLICT_TYPE_NO_RIGHT = 3;
+  CONFLICT_TYPE_DELETION = 4;
 }
 
 message RightError {

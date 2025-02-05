@@ -17,6 +17,7 @@ MetadataRest:
     - handle
     - publicationType
     - title
+    - deleted
   type: object
   properties:
     author:
@@ -36,6 +37,8 @@ MetadataRest:
     createdOn:
       type: string
       format: date-time
+    deleted:
+      type: boolean
     doi:
       type: string
     handle:
@@ -59,9 +62,8 @@ MetadataRest:
       type: string
     publicationType:
       $ref: 'metadata.model.yaml#/PublicationTypeRest'
-    publicationDate:
-      type: string
-      format: date
+    publicationYear:
+      type: integer
     rightsK10plus:
       type: string
     subCommunityHandle:
